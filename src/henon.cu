@@ -1,0 +1,976 @@
+#include "henon.h"
+
+std::array<double, 4> random_4d_kick(std::mt19937_64 *generator, std::normal_distribution<double> distribution)
+{
+    // create random uniform distribution between -1 and 1
+    auto uni_dist = std::uniform_real_distribution<double>(-1.0, 1.0);
+    // create the array
+    std::array<double, 4> kick;
+    // fill it with random uniform numbers between -1 and 1
+    for (auto& kick_component : kick)
+    {
+        kick_component = uni_dist(*generator);
+    }
+    while (kick[0] * kick[0] + kick[1] * kick[1] > 1.0)
+    {
+        kick[0] = uni_dist(*generator);
+        kick[1] = uni_dist(*generator);
+    }
+    while (kick[2] * kick[2] + kick[3] * kick[3] > 1.0)
+    {
+        kick[2] = uni_dist(*generator);
+        kick[3] = uni_dist(*generator);
+    }
+    // extract the module from the normal distribution
+    auto kick_module = distribution(*generator);
+    auto kick_fix = (1 - kick[0] * kick[0] - kick[1] * kick[1]) / (kick[2] * kick[2] + kick[3] * kick[3]);
+    // scale the kick
+    kick[0] *= kick_module;
+    kick[1] *= kick_module;
+    kick[2] *= kick_fix * kick_module;
+    kick[3] *= kick_fix * kick_module;
+    // return the kick
+    return kick;
+}
+
+
+void cpu_henon_track(
+    unsigned int idx,
+    double *x_g,
+    double *px_g,
+    double *y_g,
+    double *py_g,
+    unsigned int *steps_g,
+    const unsigned int max_steps,
+    const double barrier,
+    const double mu,
+    const double *omega_x_sin,
+    const double *omega_x_cos,
+    const double *omega_y_sin,
+    const double *omega_y_cos,
+    const bool inverse,
+    const bool random_kick,
+    std::mt19937_64 *generator,
+    std::normal_distribution<double> distribution
+)
+{
+    // save local copies of the global variables
+    double x = x_g[idx];
+    double px = px_g[idx];
+    double y = y_g[idx];
+    double py = py_g[idx];
+    unsigned int steps = steps_g[idx];
+
+    double temp1;
+    double temp2;
+    if (!inverse)
+    {
+        for (unsigned int i = 0; i < max_steps; i++)
+        {
+            temp1 = (px + x * x - y * y);
+            temp2 = (py - 2 * x * y);
+
+            if (mu != 0.0)
+            {
+                temp1 += mu * (x * x * x - 3 * y * y * x);
+                temp2 -= mu * (3 * x * x * y - y * y * y);
+            }
+
+            px = -omega_x_sin[i] * x + omega_x_cos[i] * temp1;
+            x = +omega_x_cos[i] * x + omega_x_sin[i] * temp1;
+            py = -omega_y_sin[i] * y + omega_y_cos[i] * temp2;
+            y = +omega_y_cos[i] * y + omega_y_sin[i] * temp2;
+
+            if (random_kick)
+            {
+                auto kick = random_4d_kick(generator, distribution);
+                x += kick[0];
+                px += kick[1];
+                y += kick[2];
+                py += kick[3];
+            }
+
+            if (x * x + y * y + px * px + py * py > barrier)
+            {
+                x = NAN;
+                px = NAN;
+                y = NAN;
+                py = NAN;
+                break;
+            }
+            steps += 1;
+        }
+    }
+    else
+    {
+        for (unsigned int k = max_steps; k != 0; --k)
+        {
+            px = +omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
+            x = +omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
+            py = +omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
+            y = +omega_y_cos[k - 1] * y - omega_y_sin[k - 1] * temp2;
+
+            temp1 = (px - x * x + y * y);
+            temp2 = (py + 2 * x * y);
+
+            if (mu != 0.0)
+            {
+                temp1 -= mu * (x * x * x - 3 * y * y * x);
+                temp2 += mu * (3 * x * x * y - y * y * y);
+            }
+
+            if (random_kick)
+            {
+                auto kick = random_4d_kick(generator, distribution);
+                x += kick[0];
+                px += kick[1];
+                y += kick[2];
+                py += kick[3];
+            }
+
+            if (x * x + y * y + px * px + py * py > barrier)
+            {
+                x = NAN;
+                px = NAN;
+                y = NAN;
+                py = NAN;
+                break;
+            }
+            steps -= 1;
+        }
+    }
+    
+    // save the results
+    x_g[idx] = x;
+    px_g[idx] = px;
+    y_g[idx] = y;
+    py_g[idx] = py;
+    steps_g[idx] = steps;
+}
+
+void wrap_thread_function(unsigned int from_idx,
+                          unsigned int to_idx,
+                          double *x_g,
+                          double *px_g,
+                          double *y_g,
+                          double *py_g,
+                          unsigned int *steps_g,
+                          const unsigned int max_steps,
+                          const double barrier,
+                          const double mu,
+                          const double *omega_x_sin,
+                          const double *omega_x_cos,
+                          const double *omega_y_sin,
+                          const double *omega_y_cos,
+                          const bool inverse,
+                          const bool random_kick,
+                          std::mt19937_64 *generator,
+                          std::normal_distribution<double> distribution)
+{
+    for(unsigned int idx = from_idx; idx < to_idx; idx++)
+    {
+        cpu_henon_track(idx, x_g, px_g, y_g, py_g, steps_g, max_steps, barrier, mu,
+                        omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, inverse, random_kick, generator, distribution);
+    }
+}
+
+    __global__ void gpu_henon_track(
+        double *g_x,
+        double *g_px,
+        double *g_y,
+        double *g_py,
+        unsigned int *g_steps,
+        const size_t n_samples,
+        const unsigned int max_steps,
+        const double barrier,
+        const double mu,
+        const double *omega_x_sin,
+        const double *omega_x_cos,
+        const double *omega_y_sin,
+        const double *omega_y_cos)
+{
+    double x;
+    double px;
+    double y;
+    double py;
+    double temp1;
+    double temp2;
+    unsigned int steps;
+
+    size_t j = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (j < n_samples)
+    {
+        // Load from shared
+        x = g_x[j];
+        px = g_px[j];
+        y = g_y[j];
+        py = g_py[j];
+        steps = g_steps[j];
+
+        // Track
+        for (unsigned int k = 0; k < max_steps; ++k)
+        {
+            temp1 = (px + x * x - y * y);
+            temp2 = (py - 2 * x * y);
+            
+            if (mu != 0.0)
+            {
+                temp1 += mu * (x * x * x - 3 * y * y * x);
+                temp2 -= mu * (3 * x * x * y - y * y * y);
+            }
+
+            px = -omega_x_sin[k] * x + omega_x_cos[k] * temp1;
+            x = +omega_x_cos[k] * x + omega_x_sin[k] * temp1;
+            py = -omega_y_sin[k] * y + omega_y_cos[k] * temp2;
+            y = +omega_y_cos[k] * y + omega_y_sin[k] * temp2;
+
+            if (x * x + y * y + px * px + py * py > barrier)
+            {
+                x = NAN;
+                px = NAN;
+                y = NAN;
+                py = NAN;
+                break;
+            }
+            steps += 1;
+        }
+
+        // Save in global
+        g_x[j] = x;
+        g_px[j] = px;
+        g_y[j] = y;
+        g_py[j] = py;
+        g_steps[j] = steps;
+    }
+}
+
+__global__ void gpu_henon_track_inverse(
+    double *g_x,
+    double *g_px,
+    double *g_y,
+    double *g_py,
+    unsigned int *g_steps,
+    const size_t n_samples,
+    const unsigned int max_steps,
+    const double barrier,
+    const double mu,
+    const double *omega_x_sin,
+    const double *omega_x_cos,
+    const double *omega_y_sin,
+    const double *omega_y_cos)
+{
+    double x;
+    double px;
+    double y;
+    double py;
+    double temp1;
+    double temp2;
+    unsigned int steps;
+
+    size_t j = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (j < n_samples)
+    {
+        // Load from shared
+        x = g_x[j];
+        px = g_px[j];
+        y = g_y[j];
+        py = g_py[j];
+        steps = g_steps[j];
+
+        // Track
+        for (unsigned int k = max_steps; k != 0; --k)
+        {
+            px = + omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
+            x  = + omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
+            py = + omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
+            y  = + omega_y_cos[k - 1] * y - omega_y_sin[k - 1] * temp2;
+
+            temp1 = (px - x * x + y * y);
+            temp2 = (py + 2 * x * y);
+            
+            if (mu != 0.0)
+            {
+                temp1 -= mu * (x * x * x - 3 * y * y * x);
+                temp2 += mu * (3 * x * x * y - y * y * y);
+            }
+
+        
+            if (x * x + y * y + px * px + py * py > barrier)
+            {
+                x = NAN;
+                px = NAN;
+                y = NAN;
+                py = NAN;
+                break;
+            }
+            steps -= 1;
+        }
+
+        // Save in global
+        g_x[j] = x;
+        g_px[j] = px;
+        g_y[j] = y;
+        g_py[j] = py;
+        g_steps[j] = steps;
+    }
+}
+
+__global__ void setup_random_states(curandState *states, unsigned long long seed)
+{
+	unsigned long long i = blockIdx.x * blockDim.x + threadIdx.x;
+    curand_init(seed, i, 0, &states[i]);
+}
+
+__device__ void extract_random_kicks(double* rand_kicks, curandState *state, size_t j, const double kick_sigma, const double kick_average)
+{
+    rand_kicks[0] = curand_uniform(&state[j]) * 2.0 - 1.0;
+    rand_kicks[1] = curand_uniform(&state[j]) * 2.0 - 1.0;
+    while (rand_kicks[0] * rand_kicks[0] + rand_kicks[1] * rand_kicks[1] > 1.0) {
+        rand_kicks[0] = curand_uniform(&state[j]) * 2.0 - 1.0;
+        rand_kicks[1] = curand_uniform(&state[j]) * 2.0 - 1.0;
+    }
+    rand_kicks[2] = curand_uniform(&state[j]) * 2.0 - 1.0;
+    rand_kicks[3] = curand_uniform(&state[j]) * 2.0 - 1.0;
+    while (rand_kicks[2] * rand_kicks[2] + rand_kicks[3] * rand_kicks[3] > 1.0) {
+        rand_kicks[2] = curand_uniform(&state[j]) * 2.0 - 1.0;
+        rand_kicks[3] = curand_uniform(&state[j]) * 2.0 - 1.0;
+    }
+    double rfix = (1 - rand_kicks[0] * rand_kicks[0] - rand_kicks[1] * rand_kicks[1]) / (rand_kicks[2] * rand_kicks[2] + rand_kicks[3] * rand_kicks[3]);
+    // Compute 1 normal random number
+    double rm = curand_normal(&state[j]);
+    // rescale the normal random number
+    rm = rm * kick_sigma + kick_average;
+    rand_kicks[0] *= rm;
+    rand_kicks[1] *= rm;
+    rand_kicks[2] *= rm * rfix;
+    rand_kicks[3] *= rm * rfix;
+}
+
+
+__global__ void gpu_henon_track_with_kick(
+    double *g_x,
+    double *g_px,
+    double *g_y,
+    double *g_py,
+    unsigned int *g_steps,
+    const size_t n_samples,
+    const unsigned int max_steps,
+    const double barrier,
+    const double mu,
+    const double *omega_x_sin,
+    const double *omega_x_cos,
+    const double *omega_y_sin,
+    const double *omega_y_cos,
+    curandState *rand_states,
+    const double kick_module,
+    const double kick_sigma)
+{
+    // allocate memory for random kicks
+    double *rand_kicks = (double *)malloc(4 * sizeof(double));
+
+    double x;
+    double px;
+    double y;
+    double py;
+    double temp1;
+    double temp2;
+    unsigned int steps;
+
+    size_t j = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (j < n_samples)
+    {
+        // Load from shared
+        x = g_x[j];
+        px = g_px[j];
+        y = g_y[j];
+        py = g_py[j];
+        steps = g_steps[j];
+
+        // Track
+        for (unsigned int k = 0; k < max_steps; ++k)
+        {
+            temp1 = (px + x * x - y * y);
+            temp2 = (py - 2 * x * y);
+            
+            if (mu != 0.0)
+            {
+                temp1 += mu * (x * x * x - 3 * y * y * x);
+                temp2 -= mu * (3 * x * x * y - y * y * y);
+            }
+
+            px = - omega_x_sin[k] * x + omega_x_cos[k] * temp1;
+            x  = + omega_x_cos[k] * x + omega_x_sin[k] * temp1;
+            py = - omega_y_sin[k] * y + omega_y_cos[k] * temp2;
+            y  = + omega_y_cos[k] * y + omega_y_sin[k] * temp2;
+        
+            // Generate random kick
+            extract_random_kicks(
+                rand_kicks, rand_states, j, kick_module, kick_sigma);
+            x += rand_kicks[0];
+            px += rand_kicks[1];
+            y += rand_kicks[2];
+            py += rand_kicks[3];
+
+            if (x * x + y * y + px * px + py * py > barrier)
+            {
+                x = NAN;
+                px = NAN;
+                y = NAN;
+                py = NAN;
+                break;
+            }
+            steps += 1;
+        }
+
+        // Save in global
+        g_x[j] = x;
+        g_px[j] = px;
+        g_y[j] = y;
+        g_py[j] = py;
+        g_steps[j] = steps;
+    }
+    // free memory
+    free(rand_kicks);
+}
+
+__global__ void gpu_henon_track_inverse_with_kick(
+    double *g_x,
+    double *g_px,
+    double *g_y,
+    double *g_py,
+    unsigned int *g_steps,
+    const size_t n_samples,
+    const unsigned int max_steps,
+    const double barrier,
+    const double mu,
+    const double *omega_x_sin,
+    const double *omega_x_cos,
+    const double *omega_y_sin,
+    const double *omega_y_cos,
+    curandState *rand_states,
+    const double kick_module,
+    const double kick_sigma)
+{
+    // allocate memory for random kicks
+    double *rand_kicks = (double *)malloc(4 * sizeof(double));
+
+    double x;
+    double px;
+    double y;
+    double py;
+    double temp1;
+    double temp2;
+    unsigned int steps;
+
+    size_t j = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (j < n_samples)
+    {
+        // Load from shared
+        x = g_x[j];
+        px = g_px[j];
+        y = g_y[j];
+        py = g_py[j];
+        steps = g_steps[j];
+
+        // Track
+        for (unsigned int k = max_steps; k != 0; --k)
+        {
+            px = +omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
+            x = +omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
+            py = +omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
+            y = +omega_y_cos[k - 1] * y - omega_y_sin[k - 1] * temp2;
+
+            temp1 = (px - x * x + y * y);
+            temp2 = (py + 2 * x * y);
+            
+            if (mu != 0.0)
+            {
+                temp1 -= mu * (x * x * x - 3 * y * y * x);
+                temp2 += mu * (3 * x * x * y - y * y * y);
+            }
+
+            // Generate random kick
+            extract_random_kicks(
+                rand_kicks, rand_states, j, kick_module, kick_sigma);
+            x += rand_kicks[0];
+            px += rand_kicks[1];
+            y += rand_kicks[2];
+            py += rand_kicks[3];
+        
+            if (x * x + y * y + px * px + py * py > barrier)
+            {
+                x = NAN;
+                px = NAN;
+                y = NAN;
+                py = NAN;
+                break;
+            }
+            steps -= 1;
+        }
+
+        // Save in global
+        g_x[j] = x;
+        g_px[j] = px;
+        g_y[j] = y;
+        g_py[j] = py;
+        g_steps[j] = steps;
+    }
+    // free memory
+    free(rand_kicks);
+}
+
+gpu_henon::gpu_henon(const std::vector<double> &x_init,
+              const std::vector<double> &px_init,
+              const std::vector<double> &y_init,
+              const std::vector<double> &py_init,
+              double omega_x,
+              double omega_y) : omega_x(omega_x), omega_y(omega_y), x(x_init), y(y_init), px(px_init),
+                                py(py_init), x_0(x_init), y_0(y_init), px_0(px_init), py_0(py_init),
+                                steps(x_init.size(), 0), global_steps(0)
+{
+    // load vectors on gpu
+    cudaMalloc(&d_x, x.size() * sizeof(double));
+    cudaMalloc(&d_px, px.size() * sizeof(double));
+    cudaMalloc(&d_y, y.size() * sizeof(double));
+    cudaMalloc(&d_py, py.size() * sizeof(double));
+    cudaMalloc(&d_steps, steps.size() * sizeof(unsigned int));
+
+    // copy vectors to gpu
+    cudaMemcpy(d_x, x.data(), x.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_px, px.data(), px.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y, y.data(), y.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_py, py.data(), py.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_steps, steps.data(), steps.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
+
+    // compute number of blocks and threads
+    n_samples = x.size();
+    n_threads = NT;
+    n_blocks = (n_samples + n_threads - 1) / n_threads;
+
+    // initialize curandom states
+    cudaMalloc(&d_rand_states, n_threads * n_blocks * sizeof(curandState));
+    setup_random_states<<<n_blocks, n_threads>>>(d_rand_states, clock());
+}
+
+gpu_henon::~gpu_henon()
+{
+    cudaFree(d_x);
+    cudaFree(d_px);
+    cudaFree(d_y);
+    cudaFree(d_py);
+    cudaFree(d_steps);
+    cudaFree(d_rand_states);
+}
+
+void gpu_henon::reset()
+{
+    // copy initial values to host vectors
+    x = x_0;
+    y = y_0;
+    px = px_0;
+    py = py_0;
+    steps = std::vector<unsigned int>(x.size(), 0);
+    global_steps = 0;
+
+    // copy initial values to gpu
+    cudaMemcpy(d_x, x.data(), x.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_px, px.data(), px.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y, y.data(), y.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_py, py.data(), py.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_steps, steps.data(), steps.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
+
+    // initialize curandom states
+    setup_random_states<<<n_blocks, n_threads>>>(d_rand_states, clock());
+}
+
+void gpu_henon::track(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, bool inverse, std::string modulation_kind, double omega_0)
+{
+    // compute a modulation
+    if (!inverse)
+    {
+        if (modulation_kind == "sps")
+        {
+            omega_x_vec = sps_modulation(
+                omega_x, epsilon, global_steps, global_steps + n_turns);
+            omega_y_vec = sps_modulation(
+                omega_y, epsilon, global_steps, global_steps + n_turns);
+        }
+        else if (modulation_kind == "basic")
+        {
+            assert(!std::isnan(omega_0));
+            omega_x_vec = basic_modulation(
+                omega_x, omega_0, epsilon, global_steps, global_steps + n_turns);
+            omega_y_vec = basic_modulation(
+                omega_y, omega_0, epsilon, global_steps, global_steps + n_turns);
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+    else
+    {
+        if (modulation_kind == "sps")
+        {
+            omega_x_vec = sps_modulation(
+                omega_x, epsilon, global_steps - n_turns + 1, global_steps + 1);
+            omega_y_vec = sps_modulation(
+                omega_y, epsilon, global_steps - n_turns + 1, global_steps + 1);
+        }
+        else if (modulation_kind == "basic")
+        {
+            assert(!std::isnan(omega_0));
+            omega_x_vec = basic_modulation(
+                omega_x, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
+            omega_y_vec = basic_modulation(
+                omega_y, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+
+    // copy to vectors
+    omega_x_sin.resize(omega_x_vec.size());
+    omega_x_cos.resize(omega_x_vec.size());
+    omega_y_sin.resize(omega_y_vec.size());
+    omega_y_cos.resize(omega_y_vec.size());
+
+    for (size_t i = 0; i < omega_x_vec.size(); i++)
+    {
+        omega_x_sin[i] = sin(omega_x_vec[i]);
+        omega_x_cos[i] = cos(omega_x_vec[i]);
+        omega_y_sin[i] = sin(omega_y_vec[i]);
+        omega_y_cos[i] = cos(omega_y_vec[i]);
+    }
+
+    // copy to gpu
+    cudaMalloc(&d_omega_x_sin, omega_x_sin.size() * sizeof(double));
+    cudaMalloc(&d_omega_x_cos, omega_x_cos.size() * sizeof(double));
+    cudaMalloc(&d_omega_y_sin, omega_y_sin.size() * sizeof(double));
+    cudaMalloc(&d_omega_y_cos, omega_y_cos.size() * sizeof(double));
+
+    cudaMemcpy(d_omega_x_sin, omega_x_sin.data(), omega_x_sin.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_omega_x_cos, omega_x_cos.data(), omega_x_cos.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_omega_y_sin, omega_y_sin.data(), omega_y_sin.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_omega_y_cos, omega_y_cos.data(), omega_y_cos.size() * sizeof(double), cudaMemcpyHostToDevice);
+
+    // run the simulation
+    if (std::isnan(kick_module) || std::isnan(kick_sigma))
+    {
+        if (!inverse)
+            gpu_henon_track<<<n_blocks, n_threads>>>(
+                d_x, d_px, d_y, d_py, d_steps,
+                n_samples, n_turns, barrier, mu,
+                d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos);
+        else
+            gpu_henon_track_inverse<<<n_blocks, n_threads>>>(
+                d_x, d_px, d_y, d_py, d_steps,
+                n_samples, n_turns, barrier, mu,
+                d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos);
+    }
+    else
+    {
+        if (!inverse)
+            gpu_henon_track_with_kick<<<n_blocks, n_threads>>>(
+                d_x, d_px, d_y, d_py, d_steps,
+                n_samples, n_turns, barrier, mu,
+                d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
+                d_rand_states, kick_module, kick_sigma);
+        else
+            gpu_henon_track_inverse_with_kick<<<n_blocks, n_threads>>>(
+                d_x, d_px, d_y, d_py, d_steps,
+                n_samples, n_turns, barrier, mu,
+                d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
+                d_rand_states, kick_module, kick_sigma);
+    }
+    // check for cuda errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+    {
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+        exit(1);
+    }
+
+    // copy back to host
+    cudaMemcpy(x.data(), d_x, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(px.data(), d_px, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(y.data(), d_y, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(py.data(), d_py, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(steps.data(), d_steps, n_samples * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // clear the omega vectors
+    omega_x_sin.clear();
+    omega_x_cos.clear();
+    omega_y_sin.clear();
+    omega_y_cos.clear();
+
+    // clear the gpu omega vectors
+    cudaFree(d_omega_x_sin);
+    cudaFree(d_omega_x_cos);
+    cudaFree(d_omega_y_sin);
+    cudaFree(d_omega_y_cos);
+
+    // Update the counter
+    if (!inverse)
+        global_steps += n_turns;
+    else
+        global_steps -= n_turns;
+}
+
+// getters
+std::vector<double> gpu_henon::get_x() const { return x; }
+std::vector<double> gpu_henon::get_px() const { return px; }
+std::vector<double> gpu_henon::get_y() const { return y; }
+std::vector<double> gpu_henon::get_py() const { return py; }
+std::vector<unsigned int> gpu_henon::get_steps() const { return steps; }
+unsigned int gpu_henon::get_global_steps() const { return global_steps; }
+double gpu_henon::get_omega_x() const { return omega_x; }
+double gpu_henon::get_omega_y() const { return omega_y; }
+
+// setters
+void gpu_henon::set_omega_x(double omega_x) { this->omega_x = omega_x; }
+void gpu_henon::set_omega_y(double omega_y) { this->omega_y = omega_y; }
+
+void gpu_henon::set_x(std::vector<double> x)
+{
+    // check if size is correct
+    if (x.size() != n_samples)
+        throw std::runtime_error("The size of the x vector is not correct.");
+    this->x = x;
+    // copy to gpu
+    cudaMemcpy(d_x, x.data(), x.size() * sizeof(double), cudaMemcpyHostToDevice);
+}
+void gpu_henon::set_px(std::vector<double> px)
+{
+    // check if size is correct
+    if (px.size() != n_samples)
+        throw std::runtime_error("The size of the px vector is not correct.");
+    this->px = px;
+    // copy to gpu
+    cudaMemcpy(d_px, px.data(), px.size() * sizeof(double), cudaMemcpyHostToDevice);
+}
+void gpu_henon::set_y(std::vector<double> y)
+{
+    // check if size is correct
+    if (y.size() != n_samples)
+        throw std::runtime_error("The size of the y vector is not correct.");
+    this->y = y;
+    // copy to gpu
+    cudaMemcpy(d_y, y.data(), y.size() * sizeof(double), cudaMemcpyHostToDevice);
+}
+void gpu_henon::set_py(std::vector<double> py)
+{
+    // check if size is correct
+    if (py.size() != n_samples)
+        throw std::runtime_error("The size of the py vector is not correct.");
+    this->py = py;
+    // copy to gpu
+    cudaMemcpy(d_py, py.data(), py.size() * sizeof(double), cudaMemcpyHostToDevice);
+}
+void gpu_henon::set_steps(std::vector<unsigned int> steps)
+{
+    // check if size is correct
+    if (steps.size() != n_samples)
+        throw std::runtime_error("The size of the steps vector is not correct.");
+    this->steps = steps;
+    // copy to gpu
+    cudaMemcpy(d_steps, steps.data(), steps.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
+}
+void gpu_henon::set_steps(unsigned int unique_step)
+{
+    // apply unique_step to entire steps vector
+    for (unsigned int i = 0; i < n_samples; i++)
+        steps[i] = unique_step;
+    // copy to gpu
+    cudaMemcpy(d_steps, steps.data(), steps.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
+}
+void gpu_henon::set_global_steps(unsigned int global_steps) { this->global_steps = global_steps; }
+
+cpu_henon::cpu_henon(const std::vector<double> &x_init,
+                     const std::vector<double> &px_init,
+                     const std::vector<double> &y_init,
+                     const std::vector<double> &py_init,
+                     double omega_x,
+                     double omega_y) : 
+    omega_x(omega_x), omega_y(omega_y),
+    x(x_init), y(y_init), px(px_init), py(py_init),
+    x_0(x_init), y_0(y_init), px_0(px_init), py_0(py_init),
+    steps(x_init.size(), 0), global_steps(0)
+{
+    // get number of cpu threads available
+    n_threads = std::thread::hardware_concurrency();
+}
+
+cpu_henon::~cpu_henon() {}
+
+void cpu_henon::reset()
+{
+    x = x_0;
+    y = y_0;
+    px = px_0;
+    py = py_0;
+    steps = std::vector<unsigned int>(x.size(), 0);
+    global_steps = 0;
+}
+
+void cpu_henon::track(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, bool inverse, std::string modulation_kind, double omega_0)
+{
+    // compute a modulation
+    if (!inverse)
+    {
+        if (modulation_kind == "sps")
+        {
+            omega_x_vec = sps_modulation(
+                omega_x, epsilon, global_steps, global_steps + n_turns);
+            omega_y_vec = sps_modulation(
+                omega_y, epsilon, global_steps, global_steps + n_turns);
+        }
+        else if (modulation_kind == "basic")
+        {
+            assert(!std::isnan(omega_0));
+            omega_x_vec = basic_modulation(
+                omega_x, omega_0, epsilon, global_steps, global_steps + n_turns);
+            omega_y_vec = basic_modulation(
+                omega_y, omega_0, epsilon, global_steps, global_steps + n_turns);
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+    else
+    {
+        if (modulation_kind == "sps")
+        {
+            omega_x_vec = sps_modulation(
+                omega_x, epsilon, global_steps - n_turns + 1, global_steps + 1);
+            omega_y_vec = sps_modulation(
+                omega_y, epsilon, global_steps - n_turns + 1, global_steps + 1);
+        }
+        else if (modulation_kind == "basic")
+        {
+            assert(!std::isnan(omega_0));
+            omega_x_vec = basic_modulation(
+                omega_x, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
+            omega_y_vec = basic_modulation(
+                omega_y, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+
+    // copy to vectors
+    omega_x_sin.resize(omega_x_vec.size());
+    omega_x_cos.resize(omega_x_vec.size());
+    omega_y_sin.resize(omega_y_vec.size());
+    omega_y_cos.resize(omega_y_vec.size());
+
+    for (size_t i = 0; i < omega_x_vec.size(); i++)
+    {
+        omega_x_sin[i] = sin(omega_x_vec[i]);
+        omega_x_cos[i] = cos(omega_x_vec[i]);
+        omega_y_sin[i] = sin(omega_y_vec[i]);
+        omega_y_cos[i] = cos(omega_y_vec[i]);
+    }
+
+    // update normal distribution
+    bool kick_on = false;
+    if (!isnan(kick_module) && !isnan(kick_sigma))
+    {
+        distribution = std::normal_distribution<double>(kick_module, kick_sigma);
+        kick_on = true;
+    }
+
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    // divide the work between n_threads
+    unsigned int n_elements_per_thread = x.size() / n_threads + 1;
+
+    for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
+    {
+        auto max_idx = i + n_elements_per_thread > x.size() ? x.size() : i + n_elements_per_thread;
+        threads.push_back(std::thread(&wrap_thread_function,
+            i, max_idx,
+            x.data(), px.data(), y.data(), py.data(), steps.data(), n_turns,
+            barrier, mu, omega_x_sin.data(), omega_x_cos.data(), omega_y_sin.data(), omega_y_cos.data(), inverse, kick_on, &generator, distribution));
+    }
+    
+    // join threads
+    for (auto &t : threads)
+        t.join();
+    
+    // update global_steps
+    if (!inverse)
+        global_steps += n_turns;
+    else
+        global_steps -= n_turns;
+}
+
+// getters
+std::vector<double> cpu_henon::get_x() const { return x; }
+std::vector<double> cpu_henon::get_px() const { return px; }
+std::vector<double> cpu_henon::get_y() const { return y; }
+std::vector<double> cpu_henon::get_py() const { return py; }
+std::vector<unsigned int> cpu_henon::get_steps() const { return steps; }
+unsigned int cpu_henon::get_global_steps() const { return global_steps; }
+double cpu_henon::get_omega_x() const { return omega_x; }
+double cpu_henon::get_omega_y() const { return omega_y; }
+
+// setters
+void cpu_henon::set_omega_x(double omega_x) { this->omega_x = omega_x; }
+void cpu_henon::set_omega_y(double omega_y) { this->omega_y = omega_y; }
+
+void cpu_henon::set_x(std::vector<double> x_init)
+{
+    // check if size is the same
+    if (x.size() != x_init.size())
+        throw std::invalid_argument("cpu_henon::set_x: vector sizes differ");
+    x = x_init;
+}
+void cpu_henon::set_px(std::vector<double> px_init)
+{
+    // check if size is the same
+    if (px.size() != px_init.size())
+        throw std::invalid_argument("cpu_henon::set_px: vector sizes differ");
+    px = px_init;
+}
+void cpu_henon::set_y(std::vector<double> y_init)
+{
+    // check if size is the same
+    if (y.size() != y_init.size())
+        throw std::invalid_argument("cpu_henon::set_y: vector sizes differ");
+    y = y_init;
+}
+void cpu_henon::set_py(std::vector<double> py_init)
+{
+    // check if size is the same
+    if (py.size() != py_init.size())
+        throw std::invalid_argument("cpu_henon::set_py: vector sizes differ");
+    assert(py_init.size() == py.size());
+    py = py_init;
+}
+void cpu_henon::set_steps(std::vector<unsigned int> steps_init)
+{
+    // check if size is the same
+    if (steps.size() != steps_init.size())
+        throw std::invalid_argument("cpu_henon::set_steps: vector sizes differ");
+    steps = steps_init;
+}
+void cpu_henon::set_steps(unsigned int steps_init)
+{
+    for (size_t i = 0; i < steps.size(); i++)
+        steps[i] = steps_init;
+}
+void cpu_henon::set_global_steps(unsigned int global_steps_init)
+{
+    global_steps = global_steps_init;
+}
