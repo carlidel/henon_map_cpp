@@ -1,5 +1,9 @@
 #include "henon.h"
 
+#ifdef PYBIND
+    namespace py = pybind11;
+#endif
+
 std::array<double, 4> random_4d_kick(std::mt19937_64 *generator, std::normal_distribution<double> distribution)
 {
     // create random uniform distribution between -1 and 1
@@ -31,6 +35,70 @@ std::array<double, 4> random_4d_kick(std::mt19937_64 *generator, std::normal_dis
     kick[3] *= kick_fix * kick_module;
     // return the kick
     return kick;
+}
+
+void cpu_full_henon_track(
+    unsigned int idx,
+    double *x,
+    double *px,
+    double *y,
+    double *py,
+    const unsigned int max_steps,
+    const double barrier,
+    const double mu,
+    const double *omega_x_sin,
+    const double *omega_x_cos,
+    const double *omega_y_sin,
+    const double *omega_y_cos,
+    const bool random_kick,
+    std::mt19937_64 *generator,
+    std::normal_distribution<double> distribution
+)
+{
+    double temp1;
+    double temp2;
+    for (unsigned int i = 0; i < max_steps; i++)
+    {
+        if(isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+        {
+            x[i + 1] = NAN;
+            px[i + 1] = NAN;
+            y[i + 1] = NAN;
+            py[i + 1] = NAN;
+            continue;
+        }
+
+        temp1 = (px[i] + x[i] * x[i] - y[i] * y[i]);
+        temp2 = (py[i] - 2 * x[i] * y[i]);
+
+        if (mu != 0.0)
+        {
+            temp1 += mu * (x[i] * x[i] * x[i] - 3 * y[i] * y[i] * x[i]);
+            temp2 -= mu * (3 * x[i] * x[i] * y[i] - y[i] * y[i] * y[i]);
+        }
+
+        px[i + 1] = -omega_x_sin[i] * x[i] + omega_x_cos[i] * temp1;
+        x[i + 1] = +omega_x_cos[i] * x[i] + omega_x_sin[i] * temp1;
+        py[i + 1] = -omega_y_sin[i] * y[i] + omega_y_cos[i] * temp2;
+        y[i + 1] = +omega_y_cos[i] * y[i] + omega_y_sin[i] * temp2;
+
+        if (random_kick)
+        {
+            auto kick = random_4d_kick(generator, distribution);
+            x[i + 1] += kick[0];
+            px[i + 1] += kick[1];
+            y[i + 1] += kick[2];
+            py[i + 1] += kick[3];
+        }
+
+        if (x[i + 1] * x[i + 1] + y[i + 1] * y[i + 1] + px[i + 1] * px[i + 1] + py[i + 1] * py[i + 1] > barrier)
+        {
+            x[i + 1] = NAN;
+            px[i + 1] = NAN;
+            y[i + 1] = NAN;
+            py[i + 1] = NAN;
+        }
+    }
 }
 
 
@@ -67,6 +135,13 @@ void cpu_henon_track(
     {
         for (unsigned int i = 0; i < max_steps; i++)
         {
+            if (i == 0)
+            {
+                if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
+                {
+                    break;
+                }
+            }
             temp1 = (px + x * x - y * y);
             temp2 = (py - 2 * x * y);
 
@@ -105,6 +180,16 @@ void cpu_henon_track(
     {
         for (unsigned int k = max_steps; k != 0; --k)
         {
+            if (k == max_steps)
+            {
+                if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
+                {
+                    break;
+                }
+                temp1 = px;
+                temp2 = py;
+            }
+
             px = +omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
             x = +omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
             py = +omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
@@ -174,20 +259,20 @@ void wrap_thread_function(unsigned int from_idx,
     }
 }
 
-    __global__ void gpu_henon_track(
-        double *g_x,
-        double *g_px,
-        double *g_y,
-        double *g_py,
-        unsigned int *g_steps,
-        const size_t n_samples,
-        const unsigned int max_steps,
-        const double barrier,
-        const double mu,
-        const double *omega_x_sin,
-        const double *omega_x_cos,
-        const double *omega_y_sin,
-        const double *omega_y_cos)
+__global__ void gpu_henon_track(
+    double *g_x,
+    double *g_px,
+    double *g_y,
+    double *g_py,
+    unsigned int *g_steps,
+    const size_t n_samples,
+    const unsigned int max_steps,
+    const double barrier,
+    const double mu,
+    const double *omega_x_sin,
+    const double *omega_x_cos,
+    const double *omega_y_sin,
+    const double *omega_y_cos)
 {
     double x;
     double px;
@@ -211,6 +296,14 @@ void wrap_thread_function(unsigned int from_idx,
         // Track
         for (unsigned int k = 0; k < max_steps; ++k)
         {
+            if (k == 0)
+            {
+                if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
+                {
+                    break;
+                }
+            }
+
             temp1 = (px + x * x - y * y);
             temp2 = (py - 2 * x * y);
             
@@ -282,6 +375,16 @@ __global__ void gpu_henon_track_inverse(
         // Track
         for (unsigned int k = max_steps; k != 0; --k)
         {
+            if (k == max_steps)
+            {
+                if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
+                {
+                    break;
+                }
+                temp1 = px;
+                temp2 = py;
+            }
+            
             px = + omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
             x  = + omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
             py = + omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
@@ -392,6 +495,13 @@ __global__ void gpu_henon_track_with_kick(
         // Track
         for (unsigned int k = 0; k < max_steps; ++k)
         {
+            if (k == 0)
+            {
+                if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
+                {
+                    break;
+                }
+            }
             temp1 = (px + x * x - y * y);
             temp2 = (py - 2 * x * y);
             
@@ -479,6 +589,16 @@ __global__ void gpu_henon_track_inverse_with_kick(
         // Track
         for (unsigned int k = max_steps; k != 0; --k)
         {
+            if (k == max_steps)
+            {
+                if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
+                {
+                    break;
+                }
+                temp1 = px;
+                temp2 = py;
+            }
+            
             px = +omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
             x = +omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
             py = +omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
@@ -523,14 +643,343 @@ __global__ void gpu_henon_track_inverse_with_kick(
     free(rand_kicks);
 }
 
+// PURE HENON CLASS IMPLEMENTATION
+
+void henon::compute_a_modulation(unsigned int n_turns, bool inverse, std::string modulation_kind, double omega_0, double epsilon)
+{
+    // compute a modulation
+    if (!inverse)
+    {
+        if (modulation_kind == "sps")
+        {
+            omega_x_vec = sps_modulation(
+                omega_x, epsilon, global_steps, global_steps + n_turns);
+            omega_y_vec = sps_modulation(
+                omega_y, epsilon, global_steps, global_steps + n_turns);
+        }
+        else if (modulation_kind == "basic")
+        {
+            assert(!std::isnan(omega_0));
+            omega_x_vec = basic_modulation(
+                omega_x, omega_0, epsilon, global_steps, global_steps + n_turns);
+            omega_y_vec = basic_modulation(
+                omega_y, omega_0, epsilon, global_steps, global_steps + n_turns);
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+    else
+    {
+        if (modulation_kind == "sps")
+        {
+            omega_x_vec = sps_modulation(
+                omega_x, epsilon, global_steps - n_turns + 1, global_steps + 1);
+            omega_y_vec = sps_modulation(
+                omega_y, epsilon, global_steps - n_turns + 1, global_steps + 1);
+        }
+        else if (modulation_kind == "basic")
+        {
+            assert(!std::isnan(omega_0));
+            omega_x_vec = basic_modulation(
+                omega_x, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
+            omega_y_vec = basic_modulation(
+                omega_y, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+
+    // copy to vectors
+    omega_x_sin.resize(omega_x_vec.size());
+    omega_x_cos.resize(omega_x_vec.size());
+    omega_y_sin.resize(omega_y_vec.size());
+    omega_y_cos.resize(omega_y_vec.size());
+
+    for (size_t i = 0; i < omega_x_vec.size(); i++)
+    {
+        omega_x_sin[i] = sin(omega_x_vec[i]);
+        omega_x_cos[i] = cos(omega_x_vec[i]);
+        omega_y_sin[i] = sin(omega_y_vec[i]);
+        omega_y_cos[i] = cos(omega_y_vec[i]);
+    }   
+}
+
+
+
+henon::henon(const std::vector<double> &x_init,
+             const std::vector<double> &px_init,
+             const std::vector<double> &y_init,
+             const std::vector<double> &py_init,
+             double omega_x,
+             double omega_y) : 
+    omega_x(omega_x), omega_y(omega_y),
+    x(x_init), y(y_init), px(px_init), py(py_init),
+    x_0(x_init), y_0(y_init), px_0(px_init), py_0(py_init),
+    steps(x_init.size(), 0), global_steps(0)
+{
+    // check if x_init, px_init, y_init and py_init are the same size
+    assert(x_init.size() == px_init.size());
+    assert(x_init.size() == y_init.size());
+    assert(x_init.size() == py_init.size());
+
+    // get number of cpu threads available
+    n_threads_cpu = std::thread::hardware_concurrency();
+}
+
+void henon::reset()
+{
+    x = x_0;
+    y = y_0;
+    px = px_0;
+    py = py_0;
+    steps = std::vector<unsigned int>(x.size(), 0);
+    global_steps = 0;
+}
+
+// getters
+std::vector<double> henon::get_x() const { return x; }
+std::vector<double> henon::get_px() const { return px; }
+std::vector<double> henon::get_y() const { return y; }
+std::vector<double> henon::get_py() const { return py; }
+
+std::vector<double> henon::get_x0() const { return x_0; }
+std::vector<double> henon::get_px0() const { return px_0; }
+std::vector<double> henon::get_y0() const { return y_0; }
+std::vector<double> henon::get_py0() const { return py_0; }
+
+std::vector<unsigned int> henon::get_steps() const { return steps; }
+unsigned int henon::get_global_steps() const { return global_steps; }
+double henon::get_omega_x() const { return omega_x; }
+double henon::get_omega_y() const { return omega_y; }
+
+// setters
+void henon::set_omega_x(double omega_x) { this->omega_x = omega_x; }
+void henon::set_omega_y(double omega_y) { this->omega_y = omega_y; }
+
+void henon::set_x(std::vector<double> x_init)
+{
+    // check if size is the same
+    if (x.size() != x_init.size())
+        throw std::invalid_argument("cpu_henon::set_x: vector sizes differ");
+    x = x_init;
+}
+void henon::set_px(std::vector<double> px_init)
+{
+    // check if size is the same
+    if (px.size() != px_init.size())
+        throw std::invalid_argument("cpu_henon::set_px: vector sizes differ");
+    px = px_init;
+}
+void henon::set_y(std::vector<double> y_init)
+{
+    // check if size is the same
+    if (y.size() != y_init.size())
+        throw std::invalid_argument("cpu_henon::set_y: vector sizes differ");
+    y = y_init;
+}
+void henon::set_py(std::vector<double> py_init)
+{
+    // check if size is the same
+    if (py.size() != py_init.size())
+        throw std::invalid_argument("cpu_henon::set_py: vector sizes differ");
+    assert(py_init.size() == py.size());
+    py = py_init;
+}
+void henon::set_steps(std::vector<unsigned int> steps_init)
+{
+    // check if size is the same
+    if (steps.size() != steps_init.size())
+        throw std::invalid_argument("cpu_henon::set_steps: vector sizes differ");
+    steps = steps_init;
+}
+void henon::set_steps(unsigned int steps_init)
+{
+    for (size_t i = 0; i < steps.size(); i++)
+        steps[i] = steps_init;
+}
+void henon::set_global_steps(unsigned int global_steps_init)
+{
+    global_steps = global_steps_init;
+}
+
+std::array<std::vector<std::vector<double>>, 4> henon::full_track(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, std::string modulation_kind, double omega_0)
+{
+    #ifdef PYBIND
+        py::print("Computing modulation...");
+    #endif
+    // compute a modulation
+    compute_a_modulation(n_turns, false, modulation_kind, omega_0, epsilon);
+
+    #ifdef PYBIND
+        py::print("Allocating vectors...");
+    #endif
+    // allocate 2d double vectors
+    std::vector<std::vector<double>> x_vec(x.size(), std::vector<double>(n_turns+1, NAN));
+    std::vector<std::vector<double>> px_vec(x.size(), std::vector<double>(n_turns+1, NAN));
+    std::vector<std::vector<double>> y_vec(x.size(), std::vector<double>(n_turns+1, NAN));
+    std::vector<std::vector<double>> py_vec(x.size(), std::vector<double>(n_turns+1, NAN));
+    
+    // fill first row of x_vec
+    for (size_t i = 0; i < x.size(); i++)
+    {
+        x_vec[i][0] = x[i];
+        px_vec[i][0] = px[i];
+        y_vec[i][0] = y[i];
+        py_vec[i][0] = py[i];
+    }
+
+    // update normal distribution
+    bool kick_on = false;
+    if (!isnan(kick_module) && !isnan(kick_sigma))
+    {
+        distribution = std::normal_distribution<double>(kick_module, kick_sigma);
+        kick_on = true;
+    }
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    // divide the work between n_threads
+    unsigned int n_elements_per_thread = x.size() / n_threads_cpu + 1;
+
+    #ifdef PYBIND
+        py::print("Starting threads...");
+    #endif
+    for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
+    {
+        auto max_idx = i + n_elements_per_thread > x.size() ? x.size() : i + n_elements_per_thread;
+        threads.push_back(std::thread(
+            [&](int start, int end)
+            {
+                for (unsigned int j = start; j < end; j++)
+                {
+                    cpu_full_henon_track(
+                        j,
+                        x_vec[j].data(), px_vec[j].data(),
+                        y_vec[j].data(), py_vec[j].data(),
+                        n_turns, barrier, mu,
+                        omega_x_sin.data(), omega_x_cos.data(), 
+                        omega_y_sin.data(), omega_y_cos.data(),
+                        kick_on, &generator, distribution
+                    );
+                }
+            },
+            i, max_idx
+        ));
+    }
+    
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    #ifdef PYBIND
+        py::print("Returning results...");    
+    #endif
+    return {x_vec, px_vec, y_vec, py_vec};
+}
+
+std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, std::string modulation_kind, double omega_0,  std::function<std::vector<double>(std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>) > lambda)
+{
+    #ifdef PYBIND
+        py::print("Computing modulation...");
+    #endif
+    // compute a modulation
+    compute_a_modulation(n_turns, false, modulation_kind, omega_0, epsilon);
+
+    // update normal distribution
+    bool kick_on = false;
+    if (!isnan(kick_module) && !isnan(kick_sigma))
+    {
+        distribution = std::normal_distribution<double>(kick_module, kick_sigma);
+        kick_on = true;
+    }
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    // divide the work between n_threads
+    unsigned int n_elements_per_thread = x.size() / n_threads_cpu + 1;
+
+    #ifdef PYBIND
+        py::print("Starting threads...");
+    #endif
+
+    std::vector<std::vector<double>> result_vec(x.size());
+
+    for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
+    {
+        auto max_idx = i + n_elements_per_thread > x.size() ? x.size() : i + n_elements_per_thread;
+        threads.push_back(std::thread(
+            [&](int start, int end)
+            {
+                std::vector<double> x_vec(n_turns + 1);
+                std::vector<double> px_vec(n_turns + 1);
+                std::vector<double> y_vec(n_turns + 1);
+                std::vector<double> py_vec(n_turns + 1);
+                for (unsigned int j = start; j < end; j++)
+                {
+                    x_vec[0] = x[j];
+                    px_vec[0] = px[j];
+                    y_vec[0] = y[j];
+                    py_vec[0] = py[j];
+                    cpu_full_henon_track(
+                        j,
+                        x_vec.data(), px_vec.data(),
+                        y_vec.data(), py_vec.data(),
+                        n_turns, barrier, mu,
+                        omega_x_sin.data(), omega_x_cos.data(), 
+                        omega_y_sin.data(), omega_y_cos.data(),
+                        kick_on, &generator, distribution
+                    );
+                    auto result = lambda(x_vec, px_vec, y_vec, py_vec);
+                    result_vec[j] = result;
+                }
+            },
+            i, max_idx
+        ));
+    }
+    
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    #ifdef PYBIND
+        py::print("Returning results...");    
+    #endif
+
+    return result_vec;
+}
+
+std::vector<std::vector<double>> henon::birkhoff_tunes(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, std::string modulation_kind, double omega_0, std::vector<unsigned int> from, std::vector<unsigned int> to)
+{
+    auto lambda = [&](std::vector<double> const &x_vec, std::vector<double> const &px_vec, std::vector<double> const &y_vec, std::vector<double> const &py_vec)
+    {
+        return birkhoff_tune_vec(x_vec, px_vec, y_vec, py_vec, from, to);
+    };
+    return full_track_and_lambda(n_turns, epsilon, mu, barrier, kick_module, kick_sigma, modulation_kind, omega_0, lambda);
+}
+
+
+std::vector<std::vector<double>> henon::fft_tunes(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, std::string modulation_kind, double omega_0, std::vector<unsigned int> from, std::vector<unsigned int> to)
+{
+    auto lambda = [&](std::vector<double> const &x_vec, std::vector<double> const &px_vec, std::vector<double> const &y_vec, std::vector<double> const &py_vec)
+    {
+        return fft_tune_vec(x_vec, px_vec, y_vec, py_vec, from, to);
+    };
+    return full_track_and_lambda(n_turns, epsilon, mu, barrier, kick_module, kick_sigma, modulation_kind, omega_0, lambda);
+}
+
+// GPU HENON CLASS DERIVATIVE
+
 gpu_henon::gpu_henon(const std::vector<double> &x_init,
               const std::vector<double> &px_init,
               const std::vector<double> &y_init,
               const std::vector<double> &py_init,
               double omega_x,
-              double omega_y) : omega_x(omega_x), omega_y(omega_y), x(x_init), y(y_init), px(px_init),
-                                py(py_init), x_0(x_init), y_0(y_init), px_0(px_init), py_0(py_init),
-                                steps(x_init.size(), 0), global_steps(0)
+              double omega_y) : 
+    henon(x_init, px_init, y_init, py_init, omega_x, omega_y)
 {
     // load vectors on gpu
     cudaMalloc(&d_x, x.size() * sizeof(double));
@@ -590,50 +1039,7 @@ void gpu_henon::reset()
 void gpu_henon::track(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, bool inverse, std::string modulation_kind, double omega_0)
 {
     // compute a modulation
-    if (!inverse)
-    {
-        if (modulation_kind == "sps")
-        {
-            omega_x_vec = sps_modulation(
-                omega_x, epsilon, global_steps, global_steps + n_turns);
-            omega_y_vec = sps_modulation(
-                omega_y, epsilon, global_steps, global_steps + n_turns);
-        }
-        else if (modulation_kind == "basic")
-        {
-            assert(!std::isnan(omega_0));
-            omega_x_vec = basic_modulation(
-                omega_x, omega_0, epsilon, global_steps, global_steps + n_turns);
-            omega_y_vec = basic_modulation(
-                omega_y, omega_0, epsilon, global_steps, global_steps + n_turns);
-        }
-        else
-        {
-            assert(false);
-        }
-    }
-    else
-    {
-        if (modulation_kind == "sps")
-        {
-            omega_x_vec = sps_modulation(
-                omega_x, epsilon, global_steps - n_turns + 1, global_steps + 1);
-            omega_y_vec = sps_modulation(
-                omega_y, epsilon, global_steps - n_turns + 1, global_steps + 1);
-        }
-        else if (modulation_kind == "basic")
-        {
-            assert(!std::isnan(omega_0));
-            omega_x_vec = basic_modulation(
-                omega_x, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
-            omega_y_vec = basic_modulation(
-                omega_y, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
-        }
-        else
-        {
-            assert(false);
-        }
-    }
+    compute_a_modulation(n_turns, inverse, modulation_kind, omega_0, epsilon);
 
     // copy to vectors
     omega_x_sin.resize(omega_x_vec.size());
@@ -723,19 +1129,7 @@ void gpu_henon::track(unsigned int n_turns, double epsilon, double mu, double ba
         global_steps -= n_turns;
 }
 
-// getters
-std::vector<double> gpu_henon::get_x() const { return x; }
-std::vector<double> gpu_henon::get_px() const { return px; }
-std::vector<double> gpu_henon::get_y() const { return y; }
-std::vector<double> gpu_henon::get_py() const { return py; }
-std::vector<unsigned int> gpu_henon::get_steps() const { return steps; }
-unsigned int gpu_henon::get_global_steps() const { return global_steps; }
-double gpu_henon::get_omega_x() const { return omega_x; }
-double gpu_henon::get_omega_y() const { return omega_y; }
-
 // setters
-void gpu_henon::set_omega_x(double omega_x) { this->omega_x = omega_x; }
-void gpu_henon::set_omega_y(double omega_y) { this->omega_y = omega_y; }
 
 void gpu_henon::set_x(std::vector<double> x)
 {
@@ -790,7 +1184,8 @@ void gpu_henon::set_steps(unsigned int unique_step)
     // copy to gpu
     cudaMemcpy(d_steps, steps.data(), steps.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
 }
-void gpu_henon::set_global_steps(unsigned int global_steps) { this->global_steps = global_steps; }
+
+// CPU HENON CLASS DERIVATIVE
 
 cpu_henon::cpu_henon(const std::vector<double> &x_init,
                      const std::vector<double> &px_init,
@@ -798,74 +1193,15 @@ cpu_henon::cpu_henon(const std::vector<double> &x_init,
                      const std::vector<double> &py_init,
                      double omega_x,
                      double omega_y) : 
-    omega_x(omega_x), omega_y(omega_y),
-    x(x_init), y(y_init), px(px_init), py(py_init),
-    x_0(x_init), y_0(y_init), px_0(px_init), py_0(py_init),
-    steps(x_init.size(), 0), global_steps(0)
-{
-    // get number of cpu threads available
-    n_threads = std::thread::hardware_concurrency();
-}
+    henon(x_init, px_init, y_init, py_init, omega_x, omega_y)
+{}
 
 cpu_henon::~cpu_henon() {}
-
-void cpu_henon::reset()
-{
-    x = x_0;
-    y = y_0;
-    px = px_0;
-    py = py_0;
-    steps = std::vector<unsigned int>(x.size(), 0);
-    global_steps = 0;
-}
 
 void cpu_henon::track(unsigned int n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, bool inverse, std::string modulation_kind, double omega_0)
 {
     // compute a modulation
-    if (!inverse)
-    {
-        if (modulation_kind == "sps")
-        {
-            omega_x_vec = sps_modulation(
-                omega_x, epsilon, global_steps, global_steps + n_turns);
-            omega_y_vec = sps_modulation(
-                omega_y, epsilon, global_steps, global_steps + n_turns);
-        }
-        else if (modulation_kind == "basic")
-        {
-            assert(!std::isnan(omega_0));
-            omega_x_vec = basic_modulation(
-                omega_x, omega_0, epsilon, global_steps, global_steps + n_turns);
-            omega_y_vec = basic_modulation(
-                omega_y, omega_0, epsilon, global_steps, global_steps + n_turns);
-        }
-        else
-        {
-            assert(false);
-        }
-    }
-    else
-    {
-        if (modulation_kind == "sps")
-        {
-            omega_x_vec = sps_modulation(
-                omega_x, epsilon, global_steps - n_turns + 1, global_steps + 1);
-            omega_y_vec = sps_modulation(
-                omega_y, epsilon, global_steps - n_turns + 1, global_steps + 1);
-        }
-        else if (modulation_kind == "basic")
-        {
-            assert(!std::isnan(omega_0));
-            omega_x_vec = basic_modulation(
-                omega_x, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
-            omega_y_vec = basic_modulation(
-                omega_y, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
-        }
-        else
-        {
-            assert(false);
-        }
-    }
+    compute_a_modulation(n_turns, inverse, modulation_kind, omega_0, epsilon);
 
     // copy to vectors
     omega_x_sin.resize(omega_x_vec.size());
@@ -893,7 +1229,7 @@ void cpu_henon::track(unsigned int n_turns, double epsilon, double mu, double ba
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
     // divide the work between n_threads
-    unsigned int n_elements_per_thread = x.size() / n_threads + 1;
+    unsigned int n_elements_per_thread = x.size() / n_threads_cpu + 1;
 
     for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
     {
@@ -913,64 +1249,4 @@ void cpu_henon::track(unsigned int n_turns, double epsilon, double mu, double ba
         global_steps += n_turns;
     else
         global_steps -= n_turns;
-}
-
-// getters
-std::vector<double> cpu_henon::get_x() const { return x; }
-std::vector<double> cpu_henon::get_px() const { return px; }
-std::vector<double> cpu_henon::get_y() const { return y; }
-std::vector<double> cpu_henon::get_py() const { return py; }
-std::vector<unsigned int> cpu_henon::get_steps() const { return steps; }
-unsigned int cpu_henon::get_global_steps() const { return global_steps; }
-double cpu_henon::get_omega_x() const { return omega_x; }
-double cpu_henon::get_omega_y() const { return omega_y; }
-
-// setters
-void cpu_henon::set_omega_x(double omega_x) { this->omega_x = omega_x; }
-void cpu_henon::set_omega_y(double omega_y) { this->omega_y = omega_y; }
-
-void cpu_henon::set_x(std::vector<double> x_init)
-{
-    // check if size is the same
-    if (x.size() != x_init.size())
-        throw std::invalid_argument("cpu_henon::set_x: vector sizes differ");
-    x = x_init;
-}
-void cpu_henon::set_px(std::vector<double> px_init)
-{
-    // check if size is the same
-    if (px.size() != px_init.size())
-        throw std::invalid_argument("cpu_henon::set_px: vector sizes differ");
-    px = px_init;
-}
-void cpu_henon::set_y(std::vector<double> y_init)
-{
-    // check if size is the same
-    if (y.size() != y_init.size())
-        throw std::invalid_argument("cpu_henon::set_y: vector sizes differ");
-    y = y_init;
-}
-void cpu_henon::set_py(std::vector<double> py_init)
-{
-    // check if size is the same
-    if (py.size() != py_init.size())
-        throw std::invalid_argument("cpu_henon::set_py: vector sizes differ");
-    assert(py_init.size() == py.size());
-    py = py_init;
-}
-void cpu_henon::set_steps(std::vector<unsigned int> steps_init)
-{
-    // check if size is the same
-    if (steps.size() != steps_init.size())
-        throw std::invalid_argument("cpu_henon::set_steps: vector sizes differ");
-    steps = steps_init;
-}
-void cpu_henon::set_steps(unsigned int steps_init)
-{
-    for (size_t i = 0; i < steps.size(); i++)
-        steps[i] = steps_init;
-}
-void cpu_henon::set_global_steps(unsigned int global_steps_init)
-{
-    global_steps = global_steps_init;
 }

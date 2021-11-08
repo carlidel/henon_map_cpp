@@ -5,6 +5,8 @@
 #include <vector>
 #include <array>
 #include <assert.h>
+#include <thread>
+#include <mutex>
 
 std::vector<double> basic_modulation(const double &tune, const double &omega, const double &epsilon, const int &start, const int &end);
 

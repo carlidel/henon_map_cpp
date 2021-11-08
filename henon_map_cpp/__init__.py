@@ -1,8 +1,8 @@
 import numpy as np
 from numba import njit, prange
-import numba.cuda
+import pandas as pd
 
-from .henon_map_engine import cpu_henon, gpu_henon
+from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
 
 class henon_tracker():
     def __init__(self, x_0, px_0, y_0, py_0, omega_x, omega_y, force_CPU=False):
@@ -22,7 +22,7 @@ class henon_tracker():
         if not (isinstance(force_CPU, bool)):
             raise TypeError("Argument must be a boolean.")
         # check if system has a nvidia gpu available with numba
-        GPU = numba.cuda.is_available()
+        GPU = is_cuda_device_available()
         if force_CPU or not GPU:
             self.engine = cpu_henon(x_0, px_0, y_0, py_0, omega_x, omega_y)
         else:
@@ -58,16 +58,175 @@ class henon_tracker():
             kind of modulation, either "sps" or "basic", by default "sps"
         omega_0 : float, optional
             modulation harmonic for "basic" option, by default np.nan
-        """          
+        """
         # check if the arguments are of correct type
-        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float)) and
-                isinstance(mu, (int, float)) and isinstance(barrier, (int, float)) and
-                isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float)) and
-                isinstance(inverse, bool) and isinstance(modulation_kind, str) and
-                isinstance(omega_0, (int, float))):
+        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
+                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
+                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
+                and isinstance(inverse, bool) and isinstance(modulation_kind, str)
+                and isinstance(omega_0, (int, float))):
             raise TypeError("Arguments must be of correct type.")
-        self.engine.track(n_turns, epsilon, mu, barrier*barrier, kick_module,
-            kick_sigma, inverse, modulation_kind, omega_0)
+        self.engine.track(n_turns, epsilon, mu, barrier * barrier, kick_module,
+                          kick_sigma, inverse, modulation_kind, omega_0)
+
+    def full_track(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
+                   kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
+        """Track the system for n_turns turns.
+
+        Parameters
+        ----------
+        n_turns : unsigned int
+            number of turns to track
+        epsilon : float
+            intensity of the modulation
+        mu : float
+            intensity of the octupolar kick
+        barrier : float, optional
+            radial distance of the barrier, by default 10
+        kick_module : float, optional
+            if desired, average of the kick for every turn, by default np.nan
+        kick_sigma : float, optional
+            if desired, standard deviation of the kick for every turn, by default np.nan
+        modulation_kind : str, optional
+            kind of modulation, either "sps" or "basic", by default "sps"
+        omega_0 : float, optional
+            modulation harmonic for "basic" option, by default np.nan
+        """
+        # check if the arguments are of correct type
+        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
+                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
+                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
+                and isinstance(modulation_kind, str) and isinstance(omega_0, (int, float))):
+            raise TypeError("Arguments must be of correct type.")
+        x, px, y, py = self.engine.full_track(
+            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
+            modulation_kind, omega_0
+        )
+        return np.asarray(x), np.asarray(px), np.asarray(y), np.asarray(py)
+
+    def birkhoff_tunes(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
+                       kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan,
+                       from_idx=np.array([], dtype=np.int),
+                       to_idx=np.array([], dtype=np.int)):
+        """Track the system for n_turns turns and compute birkhoff tunes for the
+        given intervals in from and to ndarrays.
+
+        Parameters
+        ----------
+        n_turns : unsigned int
+            number of turns to track
+        epsilon : float
+            intensity of the modulation
+        mu : float
+            intensity of the octupolar kick
+        barrier : float, optional
+            radial distance of the barrier, by default 10
+        kick_module : float, optional
+            if desired, average of the kick for every turn, by default np.nan
+        kick_sigma : float, optional
+            if desired, standard deviation of the kick for every turn, by default np.nan
+        modulation_kind : str, optional
+            kind of modulation, either "sps" or "basic", by default "sps"
+        omega_0 : float, optional
+            modulation harmonic for "basic" option, by default np.nan
+        from_idx : ndarray, optional
+            indices of the turns to start the birkhoff analysis, by default np.array([], dtype=np.int)
+        to_idx : ndarray, optional
+            indices of the turns to end the birkhoff analysis, by default np.array([], dtype=np.int)
+
+        Returns
+        -------
+        ndarray
+            birkhoff tunes for the given intervals in from and to ndarrays
+        """
+        # check if the arguments are of correct type
+        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
+                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
+                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
+                and isinstance(modulation_kind, str) and isinstance(omega_0, (int, float))
+                and isinstance(from_idx, np.ndarray) and isinstance(to_idx, np.ndarray)):
+            raise TypeError("Arguments must be of correct type.")
+
+        # check if the arguments are of correct length
+        if not (len(from_idx) == len(to_idx)):
+            raise ValueError("Arguments must be of same length.")
+
+        result = self.engine.birkhoff_tunes(
+            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
+            modulation_kind, omega_0, from_idx, to_idx
+        )
+        result = np.asarray(result)
+
+        # Create an empty pandas dataframe
+        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
+        
+        for i in range(len(from_idx)):
+            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
+        # add a row to the dataframe
+        pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
+        return pd_result
+
+    def fft_tunes(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
+                  kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan,
+                  from_idx=np.array([], dtype=np.int),
+                  to_idx=np.array([], dtype=np.int)):
+        """Track the system for n_turns turns and compute fft tunes for the
+        given intervals in from and to ndarrays.
+
+        Parameters
+        ----------
+        n_turns : unsigned int
+            number of turns to track
+        epsilon : float
+            intensity of the modulation
+        mu : float
+            intensity of the octupolar kick
+        barrier : float, optional
+            radial distance of the barrier, by default 10
+        kick_module : float, optional
+            if desired, average of the kick for every turn, by default np.nan
+        kick_sigma : float, optional
+            if desired, standard deviation of the kick for every turn, by default np.nan
+        modulation_kind : str, optional
+            kind of modulation, either "sps" or "basic", by default "sps"
+        omega_0 : float, optional
+            modulation harmonic for "basic" option, by default np.nan
+        from_idx : ndarray, optional
+            indices of the turns to start the fft analysis, by default np.array([], dtype=np.int)
+        to_idx : ndarray, optional
+            indices of the turns to end the fft analysis, by default np.array([], dtype=np.int)
+
+        Returns
+        -------
+        ndarray
+            fft tunes for the given intervals in from and to ndarrays
+        """
+        # check if the arguments are of correct type
+        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
+                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
+                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
+                and isinstance(modulation_kind, str) and isinstance(omega_0, (int, float))
+                and isinstance(from_idx, np.ndarray) and isinstance(to_idx, np.ndarray)):
+            raise TypeError("Arguments must be of correct type.")
+
+        # check if the arguments are of correct length
+        if not (len(from_idx) == len(to_idx)):
+            raise ValueError("Arguments must be of same length.")
+
+        result = self.engine.fft_tunes(
+            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
+            modulation_kind, omega_0, from_idx, to_idx
+        )
+        result = np.asarray(result)
+
+        # Create an empty pandas dataframe
+        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
+        
+        for i in range(len(from_idx)):
+            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
+        # add a row to the dataframe
+        pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
+        return pd_result
 
     def get_x(self):
         return np.asarray(self.engine.get_x())
@@ -80,6 +239,18 @@ class henon_tracker():
 
     def get_py(self):
         return np.asarray(self.engine.get_py())
+
+    def get_x0(self):
+        return np.asarray(self.engine.get_x0())
+
+    def get_px0(self):
+        return np.asarray(self.engine.get_px0())
+
+    def get_y0(self):
+        return np.asarray(self.engine.get_y0())
+
+    def get_py0(self):
+        return np.asarray(self.engine.get_py0())
 
     def get_steps(self):
         return np.asarray(self.engine.get_steps())
