@@ -233,32 +233,6 @@ void cpu_henon_track(
     steps_g[idx] = steps;
 }
 
-void wrap_thread_function(unsigned int from_idx,
-                          unsigned int to_idx,
-                          double *x_g,
-                          double *px_g,
-                          double *y_g,
-                          double *py_g,
-                          unsigned int *steps_g,
-                          const unsigned int max_steps,
-                          const double barrier,
-                          const double mu,
-                          const double *omega_x_sin,
-                          const double *omega_x_cos,
-                          const double *omega_y_sin,
-                          const double *omega_y_cos,
-                          const bool inverse,
-                          const bool random_kick,
-                          std::mt19937_64 *generator,
-                          std::normal_distribution<double> distribution)
-{
-    for(unsigned int idx = from_idx; idx < to_idx; idx++)
-    {
-        cpu_henon_track(idx, x_g, px_g, y_g, py_g, steps_g, max_steps, barrier, mu,
-                        omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, inverse, random_kick, generator, distribution);
-    }
-}
-
 __global__ void gpu_henon_track(
     double *g_x,
     double *g_px,
@@ -842,19 +816,16 @@ std::array<std::vector<std::vector<double>>, 4> henon::full_track(unsigned int n
 
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
-    // divide the work between n_threads
-    unsigned int n_elements_per_thread = x.size() / n_threads_cpu + 1;
 
     #ifdef PYBIND
         py::print("Starting threads...");
     #endif
-    for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
     {
-        auto max_idx = i + n_elements_per_thread > x.size() ? x.size() : i + n_elements_per_thread;
         threads.push_back(std::thread(
-            [&](int start, int end)
+            [&](int thread_idx)
             {
-                for (unsigned int j = start; j < end; j++)
+                for (unsigned int j = thread_idx; j < x_vec.size(); j+=n_threads_cpu)
                 {
                     cpu_full_henon_track(
                         j,
@@ -867,7 +838,7 @@ std::array<std::vector<std::vector<double>>, 4> henon::full_track(unsigned int n
                     );
                 }
             },
-            i, max_idx
+            i
         ));
     }
     
@@ -1228,16 +1199,25 @@ void cpu_henon::track(unsigned int n_turns, double epsilon, double mu, double ba
 
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
-    // divide the work between n_threads
-    unsigned int n_elements_per_thread = x.size() / n_threads_cpu + 1;
 
-    for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
     {
-        auto max_idx = i + n_elements_per_thread > x.size() ? x.size() : i + n_elements_per_thread;
-        threads.push_back(std::thread(&wrap_thread_function,
-            i, max_idx,
-            x.data(), px.data(), y.data(), py.data(), steps.data(), n_turns,
-            barrier, mu, omega_x_sin.data(), omega_x_cos.data(), omega_y_sin.data(), omega_y_cos.data(), inverse, kick_on, &generator, distribution));
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                for (unsigned int j = thread_idx; j < x.size(); j+=n_threads_cpu)
+                {
+                    cpu_henon_track(
+                        j, x.data(), px.data(), y.data(), py.data(), steps.data(),
+                        n_turns, barrier, mu, 
+                        omega_x_sin.data(), omega_x_cos.data(), 
+                        omega_y_sin.data(), omega_y_cos.data(), 
+                        inverse, kick_on, &generator, distribution
+                    );
+                }
+            }, 
+            i
+        ));
     }
     
     // join threads
