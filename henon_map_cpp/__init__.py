@@ -15,13 +15,8 @@ class henon_tracker():
             raise TypeError("Arguments must be 1D arrays.")
         if not (x_0.shape == px_0.shape == y_0.shape == py_0.shape):
             raise ValueError("Arguments must be of the same shape.")     
-        # check if the last 2 arguments are numbers
-        if not (isinstance(omega_x, (int, float)) and isinstance(omega_y, (int, float))):
-            raise TypeError("Arguments must be numbers.")
-        # check if the optional argument is a boolean
-        if not (isinstance(force_CPU, bool)):
-            raise TypeError("Argument must be a boolean.")
-        # check if system has a nvidia gpu available with numba
+        
+        # check if system has a nvidia gpu available
         GPU = is_cuda_device_available()
         if force_CPU or not GPU:
             self.engine = cpu_henon(x_0, px_0, y_0, py_0, omega_x, omega_y)
@@ -59,13 +54,6 @@ class henon_tracker():
         omega_0 : float, optional
             modulation harmonic for "basic" option, by default np.nan
         """
-        # check if the arguments are of correct type
-        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
-                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
-                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
-                and isinstance(inverse, bool) and isinstance(modulation_kind, str)
-                and isinstance(omega_0, (int, float))):
-            raise TypeError("Arguments must be of correct type.")
         self.engine.track(n_turns, epsilon, mu, barrier * barrier, kick_module,
                           kick_sigma, inverse, modulation_kind, omega_0)
 
@@ -92,12 +80,6 @@ class henon_tracker():
         omega_0 : float, optional
             modulation harmonic for "basic" option, by default np.nan
         """
-        # check if the arguments are of correct type
-        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
-                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
-                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
-                and isinstance(modulation_kind, str) and isinstance(omega_0, (int, float))):
-            raise TypeError("Arguments must be of correct type.")
         x, px, y, py = self.engine.full_track(
             n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
             modulation_kind, omega_0
@@ -139,14 +121,6 @@ class henon_tracker():
         ndarray
             birkhoff tunes for the given intervals in from and to ndarrays
         """
-        # check if the arguments are of correct type
-        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
-                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
-                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
-                and isinstance(modulation_kind, str) and isinstance(omega_0, (int, float))
-                and isinstance(from_idx, np.ndarray) and isinstance(to_idx, np.ndarray)):
-            raise TypeError("Arguments must be of correct type.")
-
         # check if the arguments are of correct length
         if not (len(from_idx) == len(to_idx)):
             raise ValueError("Arguments must be of same length.")
@@ -201,14 +175,6 @@ class henon_tracker():
         ndarray
             fft tunes for the given intervals in from and to ndarrays
         """
-        # check if the arguments are of correct type
-        if not (isinstance(n_turns, int) and isinstance(epsilon, (int, float))
-                and isinstance(mu, (int, float)) and isinstance(barrier, (int, float))
-                and isinstance(kick_module, (int, float)) and isinstance(kick_sigma, (int, float))
-                and isinstance(modulation_kind, str) and isinstance(omega_0, (int, float))
-                and isinstance(from_idx, np.ndarray) and isinstance(to_idx, np.ndarray)):
-            raise TypeError("Arguments must be of correct type.")
-
         # check if the arguments are of correct length
         if not (len(from_idx) == len(to_idx)):
             raise ValueError("Arguments must be of same length.")
