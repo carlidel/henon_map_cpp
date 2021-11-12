@@ -86,7 +86,7 @@ def random_4d_displacement(r, module):
     return r
 
 
-def fast_lyapunov_indicator(engine, x, px, y, py, t, mod_d):
+def fast_lyapunov_indicator(engine, x, px, y, py, t_list, mod_d):
     """
     Fast Lyapunov Indicator
     """
@@ -97,12 +97,40 @@ def fast_lyapunov_indicator(engine, x, px, y, py, t, mod_d):
     y_d = y + vec_d[:, 2]
     py_d = py + vec_d[:, 3]
 
-    x_out, px_out, y_out, py_out, _ = engine.track(x, px, y, py, t)
-    x_d_out, px_d_out, y_d_out, py_d_out, _ = engine.track(x_d, px_d, y_d, py_d, t)
+    x_all = np.concatenate((x, x_d))
+    px_all = np.concatenate((px, px_d))
+    y_all = np.concatenate((y, y_d))
+    py_all = np.concatenate((py, py_d))
 
-    displacement = np.sqrt((x_d_out - x_out)**2 + (px_d_out - px_out)**2 + (y_d_out - y_out)**2 + (py_d_out - py_out)**2)
+    t_diff_list = np.concatenate(([t_list[0]], np.diff(t_list)))
 
-    return np.log10(displacement / mod_d) / t
+    results = pd.DataFrame(columns=['t', 'fast_lyapunov_indicator'])
+    # set t column as index
+    results.set_index('t', inplace=True)
+
+    for i, t in tqdm(enumerate(t_diff_list), total=len(t_diff_list)):
+        if i == 0:
+            x_all, px_all, y_all, py_all, _ = engine.track(x_all, px_all, y_all, py_all, t)
+        else:
+            x_all, px_all, y_all, py_all, _ = engine.keep_tracking(t)
+    
+        x_out = x_all[:x.size]
+        px_out = px_all[:px.size]
+        y_out = y_all[:y.size]
+        py_out = py_all[:py.size]
+
+        x_d_out = x_all[x.size:]
+        px_d_out = px_all[px.size:]
+        y_d_out = y_all[y.size:]
+        py_d_out = py_all[py.size:]
+        
+        displacement = np.sqrt((x_d_out - x_out)**2 + (px_d_out - px_out)**2 + (y_d_out - y_out)**2 + (py_d_out - py_out)**2)
+
+        lyap = np.log10(displacement / mod_d) / t_list[i]
+        # add lyap to results
+        results.loc[t_list[i]] = lyap
+
+    return results
 
 
 def reversibility_error(engine, x, px, y, py, t):
