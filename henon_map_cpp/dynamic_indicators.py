@@ -133,21 +133,34 @@ def fast_lyapunov_indicator(engine, x, px, y, py, t_list, mod_d):
     return results
 
 
-def reversibility_error(engine, x, px, y, py, t):
+def reversibility_error(engine, x, px, y, py, t_list):
     """
     Reversibility Error
     """
-    x_rev, px_rev, y_rev, py_rev, _ = engine.track_and_reverse(x, px, y, py, t)
+    results = pd.DataFrame(columns=['t', 'reversibility_error'])
+    # set t column as index
+    results.set_index('t', inplace=True)
 
-    displacement = np.sqrt((x_rev - x)**2 + (px_rev - px)**2 + (y_rev - y)**2 + (py_rev - py)**2)
+    for i, t in tqdm(enumerate(t_list), total=len(t_list)):
+        x_rev, px_rev, y_rev, py_rev, _ = engine.track_and_reverse(x, px, y, py, t)
 
-    return displacement
+        displacement = np.sqrt((x_rev - x)**2 + (px_rev - px)**2 + (y_rev - y)**2 + (py_rev - py)**2)
+
+        results.loc[t_list[i]] = displacement
+
+    return results
 
 
-def smallest_alignment_index(engine, x, px, y, py, t, tau, mod_d):
+def smallest_alignment_index(engine, x, px, y, py, t_list, tau, mod_d):
     """
     Smallest Alignment Index
     """
+    t_max = t_list[-1]
+    j = 0
+    results = pd.DataFrame(columns=['t', 'smallest_alignment_index'])
+    # set t column as index
+    results.set_index('t', inplace=True)
+
     x_d1 = x + mod_d
     px_d1 = px
     y_d1 = y
@@ -159,7 +172,7 @@ def smallest_alignment_index(engine, x, px, y, py, t, tau, mod_d):
     py_d2 = py
 
     sali = np.ones_like(x) * np.sqrt(2.0)
-    for i in tqdm(range(tau, t + tau - 1, tau)):
+    for i in tqdm(range(tau, t_max + tau - 1, tau)):
         if i==tau:
             all_x, all_px, all_y, all_py, _ = engine.track(
                 np.concatenate((x, x_d1, x_d2)),
@@ -212,13 +225,23 @@ def smallest_alignment_index(engine, x, px, y, py, t, tau, mod_d):
             np.sqrt((x_diff_1 - x_diff_2)**2 + (px_diff_1 - px_diff_2)**2 + (y_diff_1 - y_diff_2)**2 + (py_diff_1 - py_diff_2)**2)
         ], axis=0)
 
-    return sali
+        if i >= t_list[j]:
+            results.loc[t_list[j]] = sali
+            j += 1
+
+    return results
 
 
-def global_alignment_index(engine, x, px, y, py, t, tau, mod_d):
+def global_alignment_index(engine, x, px, y, py, t_list, tau, mod_d):
     """
     Global Alignment Index
     """
+    t_max = t_list[-1]
+    j = 0
+    results = pd.DataFrame(columns=['t', 'global_alignment_index'])
+    # set t column as index
+    results.set_index('t', inplace=True)
+
     x_d1 = x + mod_d
     px_d1 = px
     y_d1 = y
@@ -240,7 +263,7 @@ def global_alignment_index(engine, x, px, y, py, t, tau, mod_d):
     py_d4 = py + mod_d
 
     gali = np.ones_like(x)
-    for i in tqdm(range(tau, t + tau - 1, tau)):
+    for i in tqdm(range(tau, t_max + tau - 1, tau)):
         if i == tau:
             all_x, all_px, all_y, all_py, _ = engine.track(
                 np.concatenate((x, x_d1, x_d2, x_d3, x_d4)),
@@ -336,5 +359,9 @@ def global_alignment_index(engine, x, px, y, py, t, tau, mod_d):
             gali,
             result
         ], axis=0)
-    return gali
 
+        if i >= t_list[j]:
+            results.loc[t_list[j]] = gali
+            j += 1
+
+    return results
