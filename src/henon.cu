@@ -622,49 +622,66 @@ __global__ void gpu_henon_track_inverse_with_kick(
 void henon::compute_a_modulation(unsigned int n_turns, bool inverse, std::string modulation_kind, double omega_0, double epsilon)
 {
     // compute a modulation
-    if (!inverse)
+    if (modulation_kind == "sps")
     {
-        if (modulation_kind == "sps")
-        {
-            omega_x_vec = sps_modulation(
-                omega_x, epsilon, global_steps, global_steps + n_turns);
-            omega_y_vec = sps_modulation(
-                omega_y, epsilon, global_steps, global_steps + n_turns);
-        }
-        else if (modulation_kind == "basic")
-        {
-            assert(!std::isnan(omega_0));
-            omega_x_vec = basic_modulation(
-                omega_x, omega_0, epsilon, global_steps, global_steps + n_turns);
-            omega_y_vec = basic_modulation(
-                omega_y, omega_0, epsilon, global_steps, global_steps + n_turns);
-        }
-        else
-        {
-            assert(false);
-        }
+        omega_x_vec = sps_modulation(
+            omega_x, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
+        omega_y_vec = sps_modulation(
+            omega_y, epsilon, global_steps, global_steps + n_turns);
+    }
+    else if (modulation_kind == "basic")
+    {
+        assert(!std::isnan(omega_0));
+        omega_x_vec = basic_modulation(
+            omega_x, omega_0, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
+        omega_y_vec = basic_modulation(
+            omega_y, omega_0, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
+    }
+    else if (modulation_kind == "none")
+    {
+        // fill omega_x_vec with omega_x
+        std::fill(omega_x_vec.begin(), omega_x_vec.end(), omega_x);
+        // fill omega_y_vec with omega_y
+        std::fill(omega_y_vec.begin(), omega_y_vec.end(), omega_y);
+    }
+    else if (modulation_kind == "gaussian")
+    {
+        omega_x_vec = gaussian_modulation(
+            omega_x, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
+        omega_y_vec = gaussian_modulation(
+            omega_y, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
+    }
+    else if (modulation_kind == "uniform")
+    {
+        omega_x_vec = uniform_modulation(
+            omega_x, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
+        omega_y_vec = uniform_modulation(
+            omega_y, epsilon,
+            !inverse ? global_steps : global_steps - n_turns + 1,
+            !inverse ? global_steps + n_turns : global_steps + 1
+        );
     }
     else
     {
-        if (modulation_kind == "sps")
-        {
-            omega_x_vec = sps_modulation(
-                omega_x, epsilon, global_steps - n_turns + 1, global_steps + 1);
-            omega_y_vec = sps_modulation(
-                omega_y, epsilon, global_steps - n_turns + 1, global_steps + 1);
-        }
-        else if (modulation_kind == "basic")
-        {
-            assert(!std::isnan(omega_0));
-            omega_x_vec = basic_modulation(
-                omega_x, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
-            omega_y_vec = basic_modulation(
-                omega_y, omega_0, epsilon, global_steps - n_turns + 1, global_steps + 1);
-        }
-        else
-        {
-            assert(false);
-        }
+        throw std::runtime_error("Unknown modulation kind");
     }
 
     // copy to vectors

@@ -42,3 +42,39 @@ std::vector<double> sps_modulation(const double &tune, const double &epsilon, co
     }
     return modulation;
 }
+
+std::vector<double> gaussian_modulation(const double &tune, const double &sigma, const int &start, const int &end)
+{
+    assert(start < end);
+    // create random engine
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    // create normal distribution
+    std::normal_distribution<double> dist(tune, sigma);
+
+    std::vector<double> modulation(end - start);
+    for (int i = 0; i < end - start; i++)
+    {
+        modulation[i] = (2 * M_PI * dist(gen));
+    }
+
+    return modulation;
+}
+
+std::vector<double> uniform_modulation(const double &from, const double &to, const int &start, const int &end)
+{
+    assert(start < end);
+    // create random engine
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    // create uniform distribution
+    std::uniform_real_distribution<double> dist(from, to);
+
+    std::vector<double> modulation(end - start);
+    for (int i = 0; i < end - start; i++)
+    {
+        modulation[i] = (2 * M_PI * dist(gen));
+    }
+
+    return modulation;
+}

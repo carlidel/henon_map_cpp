@@ -10,6 +10,7 @@
 #define MACRO_STRINGIFY(x) STRINGIFY(x)
 
 #include "henon.h"
+#include "modulation.h"
 
 bool has_cuda_error_happened() {
     cudaError_t err = cudaGetLastError();
@@ -122,6 +123,20 @@ PYBIND11_MODULE(henon_map_engine, m)
 {
     m.doc() = "Henon map engine";
     m.def("is_cuda_device_available", &is_cuda_device_available);
+
+    m.def("basic_modulation", &basic_modulation, "Basic modulation",
+        py::arg("tune"), py::arg("omega"), py::arg("epsilon"), py::arg("start"),
+        py::arg("end")
+    );
+    m.def("sps_modulation", &sps_modulation, "SPS modulation",
+        py::arg("tune"), py::arg("epsilon"), py::arg("start"), py::arg("end")
+    );
+    m.def("gaussian_modulation", &gaussian_modulation, "Gaussian modulation",
+        py::arg("tune"), py::arg("sigma"), py::arg("start"), py::arg("end")
+    );
+    m.def("uniform_modulation", &uniform_modulation, "Uniform modulation",
+        py::arg("from"), py::arg("to"), py::arg("start"), py::arg("end")
+    );
 
     py::class_<henon, pyhenon>(m, "henon")
         .def(py::init<>())
