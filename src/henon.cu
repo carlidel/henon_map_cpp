@@ -887,8 +887,6 @@ std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_tur
 
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
-    // divide the work between n_threads
-    unsigned int n_elements_per_thread = x.size() / n_threads_cpu + 1;
 
     #ifdef PYBIND
         py::print("Starting threads...");
@@ -896,17 +894,16 @@ std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_tur
 
     std::vector<std::vector<double>> result_vec(x.size());
 
-    for (unsigned int i = 0; i < x.size(); i+=n_elements_per_thread)
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
     {
-        auto max_idx = i + n_elements_per_thread > x.size() ? x.size() : i + n_elements_per_thread;
         threads.push_back(std::thread(
-            [&](int start, int end)
+            [&](int thread_idx)
             {
                 std::vector<double> x_vec(n_turns + 1);
                 std::vector<double> px_vec(n_turns + 1);
                 std::vector<double> y_vec(n_turns + 1);
                 std::vector<double> py_vec(n_turns + 1);
-                for (unsigned int j = start; j < end; j++)
+                for (unsigned int j = thread_idx; j < x.size(); j+=n_threads_cpu)
                 {
                     x_vec[0] = x[j];
                     px_vec[0] = px[j];
@@ -923,9 +920,10 @@ std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_tur
                     );
                     auto result = lambda(x_vec, px_vec, y_vec, py_vec);
                     result_vec[j] = result;
+                    std::cout << "Thread " << thread_idx << ": " << j << std::endl;
                 }
             },
-            i, max_idx
+            i
         ));
     }
     
