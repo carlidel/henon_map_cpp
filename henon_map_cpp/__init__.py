@@ -70,8 +70,7 @@ class henon_tracker():
         if not np.all(np.diff(n_turns) > 0):
             raise ValueError("n_turns must be sorted in increasing order.")    
 
-        megno = self.engine.track_MEGNO(n_turns, epsilon, mu, barrier * barrier,
-            kick_module, kick_sigma, modulation_kind, omega_0)
+        megno = self.engine.track_MEGNO(list(n_turns), epsilon, mu, barrier * barrier, False, kick_module, kick_sigma, modulation_kind, omega_0)
         
         return megno
 
