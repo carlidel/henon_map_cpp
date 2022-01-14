@@ -180,28 +180,25 @@ void cpu_henon_track(
     {
         for (unsigned int k = max_steps; k != 0; --k)
         {
-            if (k == max_steps)
-            {
                 if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
                 {
                     break;
                 }
                 temp1 = px;
                 temp2 = py;
-            }
 
             px = +omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
             x = +omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
             py = +omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
             y = +omega_y_cos[k - 1] * y - omega_y_sin[k - 1] * temp2;
 
-            temp1 = (px - x * x + y * y);
-            temp2 = (py + 2 * x * y);
+            px = (px - x * x + y * y);
+            py = (py + 2 * x * y);
 
             if (mu != 0.0)
             {
-                temp1 -= mu * (x * x * x - 3 * y * y * x);
-                temp2 += mu * (3 * x * x * y - y * y * y);
+                px -= mu * (x * x * x - 3 * y * y * x);
+                py += mu * (3 * x * x * y - y * y * y);
             }
 
             if (random_kick)
@@ -349,31 +346,27 @@ __global__ void gpu_henon_track_inverse(
         // Track
         for (unsigned int k = max_steps; k != 0; --k)
         {
-            if (k == max_steps)
-            {
                 if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
                 {
                     break;
                 }
                 temp1 = px;
                 temp2 = py;
-            }
             
             px = + omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
             x  = + omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
             py = + omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
             y  = + omega_y_cos[k - 1] * y - omega_y_sin[k - 1] * temp2;
 
-            temp1 = (px - x * x + y * y);
-            temp2 = (py + 2 * x * y);
+            px = (px - x * x + y * y);
+            py = (py + 2 * x * y);
             
             if (mu != 0.0)
             {
-                temp1 -= mu * (x * x * x - 3 * y * y * x);
-                temp2 += mu * (3 * x * x * y - y * y * y);
+                px -= mu * (x * x * x - 3 * y * y * x);
+                py += mu * (3 * x * x * y - y * y * y);
             }
 
-        
             if (x * x + y * y + px * px + py * py > barrier)
             {
                 x = NAN;
@@ -563,28 +556,26 @@ __global__ void gpu_henon_track_inverse_with_kick(
         // Track
         for (unsigned int k = max_steps; k != 0; --k)
         {
-            if (k == max_steps)
-            {
                 if (isnan(x) || isnan(px) || isnan(y) || isnan(py))
                 {
                     break;
                 }
+
                 temp1 = px;
                 temp2 = py;
-            }
             
             px = +omega_x_sin[k - 1] * x + omega_x_cos[k - 1] * temp1;
             x = +omega_x_cos[k - 1] * x - omega_x_sin[k - 1] * temp1;
             py = +omega_y_sin[k - 1] * y + omega_y_cos[k - 1] * temp2;
             y = +omega_y_cos[k - 1] * y - omega_y_sin[k - 1] * temp2;
 
-            temp1 = (px - x * x + y * y);
-            temp2 = (py + 2 * x * y);
+            px = (px - x * x + y * y);
+            py = (py + 2 * x * y);
             
             if (mu != 0.0)
             {
-                temp1 -= mu * (x * x * x - 3 * y * y * x);
-                temp2 += mu * (3 * x * x * y - y * y * y);
+                px -= mu * (x * x * x - 3 * y * y * x);
+                py += mu * (3 * x * x * y - y * y * y);
             }
 
             // Generate random kick
@@ -920,7 +911,6 @@ std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_tur
                     );
                     auto result = lambda(x_vec, px_vec, y_vec, py_vec);
                     result_vec[j] = result;
-                    std::cout << "Thread " << thread_idx << ": " << j << std::endl;
                 }
             },
             i
