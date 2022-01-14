@@ -18,6 +18,7 @@
 #include <random>
 #include <chrono>
 #include <string>
+#include <limits>
 // include standard thread library
 #include <thread>
 #include <mutex>
@@ -150,6 +151,8 @@ public:
 
     void reset() override;
     void track(unsigned int n_turns, double epsilon, double mu, double barrier = 100.0, double kick_module = NAN, double kick_sigma = NAN, bool inverse = false, std::string modulation_kind = "sps", double omega_0 = NAN) override;
+
+    std::vector<std::vector<double>> track_MEGNO(std::vector<unsigned int> n_turns, double epsilon, double mu, double barrier = 100.0, double kick_module = NAN, double kick_sigma = NAN, bool inverse = false, std::string modulation_kind = "sps", double omega_0 = NAN);
 
     // Setters
     void set_x(std::vector<double> x) override;

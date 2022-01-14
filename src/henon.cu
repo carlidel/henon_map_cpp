@@ -230,6 +230,57 @@ void cpu_henon_track(
     steps_g[idx] = steps;
 }
 
+__global__ void gpu_compute_displacements(
+    double *g_x,
+    double *g_px,
+    double *g_y,
+    double *g_py,
+    double *displacements,
+    const size_t n_samples
+)
+{
+    size_t j = threadIdx.x + blockIdx.x * blockDim.x;
+    if (j >= n_samples)
+    {
+        return;
+    }
+
+    if (isnan(g_x[j]) || isnan(g_px[j]) || isnan(g_y[j]) || isnan(g_py[j]))
+    {
+        displacements[j] = NAN;
+    }                
+    else{
+        displacements[j] = sqrt(
+            (g_x[j] - g_x[j + n_samples]) * (g_x[j] - g_x[j + n_samples]) +
+            (g_px[j] - g_px[j + n_samples]) * (g_px[j] - g_px[j + n_samples]) +
+            (g_y[j] - g_y[j + n_samples]) * (g_y[j] - g_y[j + n_samples]) +
+            (g_py[j] - g_py[j + n_samples]) * (g_py[j] - g_py[j + n_samples])
+        );
+    }
+}
+
+__global__ void gpu_add_to_ratio(
+    double *old_displacement,
+    double *new_displacements,
+    double *ratio,
+    const size_t n_samples)
+{
+    size_t j = threadIdx.x + blockIdx.x * blockDim.x;
+    if (j >= n_samples)
+    {
+        return;
+    }
+
+    if (isnan(old_displacement[j]) || isnan(new_displacements[j]))
+    {
+        ratio[j] = NAN;
+    }
+    else
+    {
+        ratio[j] += new_displacements[j] / old_displacement[j];
+    }
+}
+
 __global__ void gpu_henon_track(
     double *g_x,
     double *g_px,
@@ -1105,6 +1156,148 @@ void gpu_henon::track(unsigned int n_turns, double epsilon, double mu, double ba
         global_steps -= n_turns;
 }
 
+std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int> n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, bool inverse, std::string modulation_kind, double omega_0)
+{
+    // pre allocate megno space and fill it with NaNs
+    std::vector<std::vector<double>> megno(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
+    unsigned int index = 0;
+
+    // compute a modulation
+    compute_a_modulation(n_turns.back(), inverse, modulation_kind, omega_0, epsilon);
+
+    // copy to vectors
+    omega_x_sin.resize(omega_x_vec.size());
+    omega_x_cos.resize(omega_x_vec.size());
+    omega_y_sin.resize(omega_y_vec.size());
+    omega_y_cos.resize(omega_y_vec.size());
+
+    for (size_t i = 0; i < omega_x_vec.size(); i++)
+    {
+        omega_x_sin[i] = sin(omega_x_vec[i]);
+        omega_x_cos[i] = cos(omega_x_vec[i]);
+        omega_y_sin[i] = sin(omega_y_vec[i]);
+        omega_y_cos[i] = cos(omega_y_vec[i]);
+    }
+
+    // copy to gpu
+    cudaMalloc(&d_omega_x_sin, omega_x_sin.size() * sizeof(double));
+    cudaMalloc(&d_omega_x_cos, omega_x_cos.size() * sizeof(double));
+    cudaMalloc(&d_omega_y_sin, omega_y_sin.size() * sizeof(double));
+    cudaMalloc(&d_omega_y_cos, omega_y_cos.size() * sizeof(double));
+
+    cudaMemcpy(d_omega_x_sin, omega_x_sin.data(), omega_x_sin.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_omega_x_cos, omega_x_cos.data(), omega_x_cos.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_omega_y_sin, omega_y_sin.data(), omega_y_sin.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_omega_y_cos, omega_y_cos.data(), omega_y_cos.size() * sizeof(double), cudaMemcpyHostToDevice);
+
+    double *d_displacement_1;
+    double *d_displacement_2;
+    double *d_ratio_sum;
+
+    cudaMalloc(&d_displacement_1, (n_samples / 2) * sizeof(double));
+    cudaMalloc(&d_displacement_2, (n_samples / 2) * sizeof(double));
+    cudaMalloc(&d_ratio_sum, (n_samples / 2) * sizeof(double));
+
+    // initialize vectors to 0
+    cudaMemset(d_displacement_1, 0, (n_samples / 2) * sizeof(double));
+    cudaMemset(d_displacement_2, 0, (n_samples / 2) * sizeof(double));
+    cudaMemset(d_ratio_sum, 0, (n_samples / 2) * sizeof(double));
+
+    // run the simulation
+    for (unsigned int j; j < n_turns.back(); j++)
+    {
+        if (std::isnan(kick_module) || std::isnan(kick_sigma))
+        {
+            if (!inverse)
+                gpu_henon_track<<<n_blocks, n_threads>>>(
+                    d_x, d_px, d_y, d_py, d_steps,
+                    n_samples, 1, barrier, mu,
+                    d_omega_x_sin + j, d_omega_x_cos + j, d_omega_y_sin + j, d_omega_y_cos + j);
+            else
+                gpu_henon_track_inverse<<<n_blocks, n_threads>>>(
+                    d_x, d_px, d_y, d_py, d_steps,
+                    n_samples, 1, barrier, mu,
+                    d_omega_x_sin + j, d_omega_x_cos + j, d_omega_y_sin + j, d_omega_y_cos + j);
+        }
+        else
+        {
+            if (!inverse)
+                gpu_henon_track_with_kick<<<n_blocks, n_threads>>>(
+                    d_x, d_px, d_y, d_py, d_steps,
+                    n_samples, 1, barrier, mu,
+                    d_omega_x_sin + j, d_omega_x_cos + j, d_omega_y_sin + j, d_omega_y_cos + j,
+                    d_rand_states, kick_module, kick_sigma);
+            else
+                gpu_henon_track_inverse_with_kick<<<n_blocks, n_threads>>>(
+                    d_x, d_px, d_y, d_py, d_steps,
+                    n_samples, 1, barrier, mu,
+                    d_omega_x_sin + j, d_omega_x_cos + j, d_omega_y_sin + j, d_omega_y_cos + j,
+                    d_rand_states, kick_module, kick_sigma);
+        }
+        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j%2 == 0 ? d_displacement_1 : d_displacement_2, n_samples / 2);
+        if (j > 0)
+        {
+            if (j % 2 == 1)
+                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_1, d_displacement_2, d_ratio_sum, n_samples / 2);
+            else
+                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples / 2);            
+        }
+
+        // if j is in the n_turns vector, then we need to compute megno
+        if (j + 1 == n_turns[index])
+        {
+            cudaMemcpy(
+                megno[index].data(), d_ratio_sum, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+            
+            // divide by number of turns
+            for (size_t i = 0; i < megno[index].size(); i++)
+            {
+                megno[index][i] /= n_turns[index];
+            }
+            index += 1;
+        }
+
+    }
+    // check for cuda errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+    {
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+        exit(1);
+    }
+
+    // copy back to host
+    cudaMemcpy(x.data(), d_x, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(px.data(), d_px, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(y.data(), d_y, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(py.data(), d_py, n_samples * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(steps.data(), d_steps, n_samples * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // clear the omega vectors
+    omega_x_sin.clear();
+    omega_x_cos.clear();
+    omega_y_sin.clear();
+    omega_y_cos.clear();
+
+    // clear the gpu omega vectors
+    cudaFree(d_omega_x_sin);
+    cudaFree(d_omega_x_cos);
+    cudaFree(d_omega_y_sin);
+    cudaFree(d_omega_y_cos);
+
+    // clear the displacement vectors
+    cudaFree(d_displacement_1);
+    cudaFree(d_displacement_2);
+    cudaFree(d_ratio_sum);
+
+    // Update the counter
+    if (!inverse)
+        global_steps += n_turns.back();
+    else
+        global_steps -= n_turns.back();
+
+    return megno;
+}
 // setters
 
 void gpu_henon::set_x(std::vector<double> x)
