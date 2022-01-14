@@ -232,7 +232,14 @@ PYBIND11_MODULE(henon_map_engine, m)
                  const double &,
                  const double &>(),
              py::arg("x_init"), py::arg("px_init"), py::arg("y_init"),
-             py::arg("py_init"), py::arg("omega_x"), py::arg("omega_y"));
+             py::arg("py_init"), py::arg("omega_x"), py::arg("omega_y"))
+        .def("track_MEGNO", &gpu_henon::track_MEGNO,
+             "Tracks the particles with MEGNO",
+             py::arg("n_turns"), py::arg("epsilon"),
+             py::arg("mu"), py::arg("barrier") = 100.0,
+             py::arg("kick_module") = NAN, py::arg("kick_sigma") = NAN,
+             py::arg("inverse") = false, py::arg("modulation_kind") = "sps",
+             py::arg("omega_0") = NAN);
 
     py::class_<cpu_henon, henon, pycpu_henon>(m, "cpu_henon")
         .def(py::init<

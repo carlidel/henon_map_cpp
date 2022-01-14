@@ -57,6 +57,24 @@ class henon_tracker():
         self.engine.track(n_turns, epsilon, mu, barrier * barrier, kick_module,
                           kick_sigma, inverse, modulation_kind, omega_0)
 
+    def track_MEGNO(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
+                    kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
+        
+        # make sure that n_turns is a 1D sorted array
+        if not isinstance(n_turns, np.ndarray):
+            n_turns = np.asarray(n_turns)
+        
+        if n_turns.ndim != 1:
+            raise ValueError("n_turns must be a 1D array.")
+
+        if not np.all(np.diff(n_turns) > 0):
+            raise ValueError("n_turns must be sorted in increasing order.")    
+
+        megno = self.engine.track_MEGNO(n_turns, epsilon, mu, barrier * barrier,
+            kick_module, kick_sigma, modulation_kind, omega_0)
+        
+        return megno
+
     def full_track(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
                    kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
         """Track the system for n_turns turns.
