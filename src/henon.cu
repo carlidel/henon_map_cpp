@@ -1159,7 +1159,7 @@ void gpu_henon::track(unsigned int n_turns, double epsilon, double mu, double ba
 std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int> n_turns, double epsilon, double mu, double barrier, double kick_module, double kick_sigma, bool inverse, std::string modulation_kind, double omega_0)
 {
     // pre allocate megno space and fill it with NaNs
-    std::vector<std::vector<double>> megno(n_turns.size(), std::vector<double>(n_samples, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> megno(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
     unsigned int index = 0;
 
     // compute a modulation
@@ -1194,14 +1194,14 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
     double *d_displacement_2;
     double *d_ratio_sum;
 
-    cudaMalloc(&d_displacement_1, (n_samples) * sizeof(double));
-    cudaMalloc(&d_displacement_2, (n_samples) * sizeof(double));
-    cudaMalloc(&d_ratio_sum, (n_samples) * sizeof(double));
+    cudaMalloc(&d_displacement_1, (n_samples / 2) * sizeof(double));
+    cudaMalloc(&d_displacement_2, (n_samples / 2) * sizeof(double));
+    cudaMalloc(&d_ratio_sum, (n_samples / 2) * sizeof(double));
 
     // initialize vectors to 0
-    cudaMemset(d_displacement_1, 0, (n_samples) * sizeof(double));
-    cudaMemset(d_displacement_2, 0, (n_samples) * sizeof(double));
-    cudaMemset(d_ratio_sum, 0, (n_samples) * sizeof(double));
+    cudaMemset(d_displacement_1, 0, (n_samples / 2) * sizeof(double));
+    cudaMemset(d_displacement_2, 0, (n_samples / 2) * sizeof(double));
+    cudaMemset(d_ratio_sum, 0, (n_samples / 2) * sizeof(double));
 
     // run the simulation
     for (unsigned int j; j < n_turns.back(); j++)
@@ -1234,20 +1234,20 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
                     d_omega_x_sin + j, d_omega_x_cos + j, d_omega_y_sin + j, d_omega_y_cos + j,
                     d_rand_states, kick_module, kick_sigma);
         }
-        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j%2 == 0 ? d_displacement_1 : d_displacement_2, n_samples);
+        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j%2 == 0 ? d_displacement_1 : d_displacement_2, n_samples / 2);
         if (j > 0)
         {
             if (j % 2 == 1)
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_1, d_displacement_2, d_ratio_sum, n_samples);
+                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_1, d_displacement_2, d_ratio_sum, n_samples / 2);
             else
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples);            
+                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples / 2);            
         }
 
         // if j is in the n_turns vector, then we need to compute megno
         if (j + 1 == n_turns[index])
         {
             cudaMemcpy(
-                megno[index].data(), d_ratio_sum, (n_samples) * sizeof(double), cudaMemcpyDeviceToHost);
+                megno[index].data(), d_ratio_sum, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             
             // divide by number of turns
             for (size_t i = 0; i < megno[index].size(); i++)
