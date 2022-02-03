@@ -8,6 +8,7 @@
 #include <thread>
 #include <mutex>
 #include <random>
+#include <tuple>
 
 std::vector<double> basic_modulation(const double &tune, const double &omega, const double &epsilon, const int &start, const int &end);
 
@@ -16,5 +17,7 @@ std::vector<double> sps_modulation(const double &tune, const double &epsilon, co
 std::vector<double> gaussian_modulation(const double &tune, const double &sigma, const int &start, const int &end);
 
 std::vector<double> uniform_modulation(const double &from, const double &to, const int &start, const int &end);
+
+std::tuple<std::vector<double>, std::vector<double>> pick_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset);
 
 #endif // MODULATION_H

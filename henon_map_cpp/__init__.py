@@ -5,7 +5,7 @@ import pandas as pd
 from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
 
 class henon_tracker():
-    def __init__(self, x_0, px_0, y_0, py_0, omega_x, omega_y, force_CPU=False):
+    def __init__(self, x_0, px_0, y_0, py_0, force_CPU=False):
         # check if the first 5 arguments are numpy arrays of the same 1D shape
         if not (isinstance(x_0, np.ndarray) and isinstance(px_0, np.ndarray) and
                 isinstance(y_0, np.ndarray) and isinstance(py_0, np.ndarray)):
@@ -19,46 +19,57 @@ class henon_tracker():
         # check if system has a nvidia gpu available
         GPU = is_cuda_device_available()
         if force_CPU or not GPU:
-            self.engine = cpu_henon(x_0, px_0, y_0, py_0, omega_x, omega_y)
+            self.engine = cpu_henon(x_0, px_0, y_0, py_0)
         else:
-            self.engine = gpu_henon(x_0, px_0, y_0, py_0, omega_x, omega_y)
+            self.engine = gpu_henon(x_0, px_0, y_0, py_0)
 
     def reset(self):
         """Reset the tracker to the initial conditions.
         """
         self.engine.reset()
 
-    def track(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-              kick_sigma=np.nan, inverse=False, modulation_kind="sps",
-              omega_0=np.nan):
+    def compute_a_modulation(self, n_turns, omega_x, omega_y, epsilon=0.0, modulation_kind="sps", omega_0=np.nan, offset=0):
+        """Compute a modulation with the given parameters and use it to set up
+        the maximum number of turns available in the engine.
+
+        Parameters
+        ----------
+        n_turns : unsigned int
+            number of turns
+        omega_x : float
+            tune x [units of 2pi]
+        omega_y : float
+            tune y [units of 2pi]
+        epsilon : float, optional
+            modulation for sps (or else...), by default 0.0
+        modulation_kind : str, optional
+            none, sps, gaussian, uniform, by default "sps"
+        omega_0 : float, optional
+            necessary for certain elements, by default np.nan
+        offset : int, optional
+            do you want an offset in the calculation?, by default 0
+        """        
+        self.engine.compute_a_modulation(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset)
+
+    def track(self, n_turns, mu, barrier=10.0, kick_module=np.nan, inverse=False):
         """Track the system for n_turns turns.
 
         Parameters
         ----------
         n_turns : unsigned int
             number of turns to track
-        epsilon : float
-            intensity of the modulation
         mu : float
             intensity of the octupolar kick
         barrier : float, optional
             radial distance of the barrier, by default 10
         kick_module : float, optional
             if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
         inverse : bool, optional
             perform an inverse tracking if True, by default False
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
         """
-        self.engine.track(n_turns, epsilon, mu, barrier * barrier, kick_module,
-                          kick_sigma, inverse, modulation_kind, omega_0)
+        self.engine.track(n_turns, mu, barrier, kick_module, inverse)
 
-    def track_MEGNO(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                    kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
+    def track_MEGNO(self, n_turns, mu, barrier=10.0, kick_module=np.nan):
         
         # make sure that n_turns is a 1D sorted array
         if not isinstance(n_turns, np.ndarray):
@@ -70,41 +81,28 @@ class henon_tracker():
         if not np.all(np.diff(n_turns) > 0):
             raise ValueError("n_turns must be sorted in increasing order.")    
 
-        megno = self.engine.track_MEGNO(list(n_turns), epsilon, mu, barrier * barrier, False, kick_module, kick_sigma, modulation_kind, omega_0)
+        megno = self.engine.track_MEGNO(list(n_turns), mu, barrier, kick_module, False)
         
-        return megno
+        return np.asarray(megno)
 
-    def full_track(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                   kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
+    def full_track(self, n_turns, mu, barrier=10.0, kick_module=np.nan):
         """Track the system for n_turns turns.
 
         Parameters
         ----------
         n_turns : unsigned int
             number of turns to track
-        epsilon : float
-            intensity of the modulation
         mu : float
             intensity of the octupolar kick
         barrier : float, optional
             radial distance of the barrier, by default 10
         kick_module : float, optional
             if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
         """
-        x, px, y, py = self.engine.full_track(
-            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
-            modulation_kind, omega_0
-        )
+        x, px, y, py = self.engine.full_track(n_turns, mu, barrier, kick_module)
         return np.asarray(x), np.asarray(px), np.asarray(y), np.asarray(py)
 
-    def birkhoff_tunes(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                       kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan,
+    def birkhoff_tunes(self, n_turns, mu, barrier=10.0, kick_module=np.nan,
                        from_idx=np.array([], dtype=np.int),
                        to_idx=np.array([], dtype=np.int)):
         """Track the system for n_turns turns and compute birkhoff tunes for the
@@ -114,20 +112,12 @@ class henon_tracker():
         ----------
         n_turns : unsigned int
             number of turns to track
-        epsilon : float
-            intensity of the modulation
         mu : float
             intensity of the octupolar kick
         barrier : float, optional
             radial distance of the barrier, by default 10
         kick_module : float, optional
             if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
         from_idx : ndarray, optional
             indices of the turns to start the birkhoff analysis, by default np.array([], dtype=np.int)
         to_idx : ndarray, optional
@@ -142,10 +132,7 @@ class henon_tracker():
         if not (len(from_idx) == len(to_idx)):
             raise ValueError("Arguments must be of same length.")
 
-        result = self.engine.birkhoff_tunes(
-            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
-            modulation_kind, omega_0, from_idx, to_idx
-        )
+        result = self.engine.birkhoff_tunes(n_turns, mu, barrier, kick_module, from_idx, to_idx)
         result = np.asarray(result)
 
         # Create an empty pandas dataframe
@@ -157,8 +144,7 @@ class henon_tracker():
         pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
         return pd_result
 
-    def fft_tunes(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                  kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan,
+    def fft_tunes(self, n_turns, mu, barrier=10.0, kick_module=np.nan,
                   from_idx=np.array([], dtype=np.int),
                   to_idx=np.array([], dtype=np.int)):
         """Track the system for n_turns turns and compute fft tunes for the
@@ -168,20 +154,12 @@ class henon_tracker():
         ----------
         n_turns : unsigned int
             number of turns to track
-        epsilon : float
-            intensity of the modulation
         mu : float
             intensity of the octupolar kick
         barrier : float, optional
             radial distance of the barrier, by default 10
         kick_module : float, optional
             if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
         from_idx : ndarray, optional
             indices of the turns to start the fft analysis, by default np.array([], dtype=np.int)
         to_idx : ndarray, optional
@@ -196,10 +174,8 @@ class henon_tracker():
         if not (len(from_idx) == len(to_idx)):
             raise ValueError("Arguments must be of same length.")
 
-        result = self.engine.fft_tunes(
-            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
-            modulation_kind, omega_0, from_idx, to_idx
-        )
+        result = self.engine.fft_tunes(n_turns, mu, barrier, kick_module, from_idx, to_idx)
+
         result = np.asarray(result)
 
         # Create an empty pandas dataframe
@@ -237,12 +213,6 @@ class henon_tracker():
 
     def get_steps(self):
         return np.asarray(self.engine.get_steps())
-        
-    def get_omega_x(self):
-        return self.engine.get_omega_x()
-
-    def get_omega_y(self):
-        return self.engine.get_omega_y()
 
     def get_global_steps(self):
         return self.engine.get_global_steps()
@@ -286,18 +256,6 @@ class henon_tracker():
         if not (py.shape == self.engine.get_py().shape):
             raise ValueError("Argument must be of the same shape.")
         self.engine.set_py(py)
-
-    def set_omega_x(self, omega_x):
-        # check if the argument is a number
-        if not (isinstance(omega_x, (int, float))):
-            raise TypeError("Argument must be a number.")
-        self.engine.set_omega_x(omega_x)
-
-    def set_omega_y(self, omega_y):
-        # check if the argument is a number
-        if not (isinstance(omega_y, (int, float))):
-            raise TypeError("Argument must be a number.")
-        self.engine.set_omega_y(omega_y)
 
     def set_global_steps(self, global_steps):
         # check if the argument is a number
