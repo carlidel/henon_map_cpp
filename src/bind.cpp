@@ -11,6 +11,7 @@
 
 #include "henon.h"
 #include "modulation.h"
+#include "dynamic_indicator.h"
 
 bool has_cuda_error_happened() {
     cudaError_t err = cudaGetLastError();
@@ -223,6 +224,10 @@ PYBIND11_MODULE(henon_map_engine, m)
     );
     m.def("uniform_modulation", &uniform_modulation, "Uniform modulation",
         py::arg("from"), py::arg("to"), py::arg("start"), py::arg("end")
+    );
+
+    m.def("get_tunes", &get_tunes, "Get tunes",
+        py::arg("x"), py::arg("px")
     );
 
     py::class_<henon, pyhenon>(m, "henon")

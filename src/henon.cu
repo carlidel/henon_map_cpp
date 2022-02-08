@@ -270,9 +270,10 @@ __global__ void gpu_compute_displacements(
 }
 
 __global__ void gpu_add_to_ratio(
+    double *new_displacement,
     double *old_displacement,
-    double *new_displacements,
     double *ratio,
+    const unsigned int step,
     const size_t n_samples)
 {
     size_t j = threadIdx.x + blockIdx.x * blockDim.x;
@@ -281,13 +282,13 @@ __global__ void gpu_add_to_ratio(
         return;
     }
 
-    if (isnan(old_displacement[j]) || isnan(new_displacements[j]))
+    if (isnan(old_displacement[j]) || isnan(new_displacement[j]))
     {
         ratio[j] = NAN;
     }
     else
     {
-        ratio[j] += new_displacements[j] / old_displacement[j];
+        ratio[j] += step * log10(new_displacement[j] / old_displacement[j]);
     }
 }
 
@@ -754,6 +755,10 @@ gpu_henon::~gpu_henon()
     cudaFree(d_py);
     cudaFree(d_steps);
     cudaFree(d_rand_states);
+    cudaFree(d_omega_x_sin);
+    cudaFree(d_omega_x_cos);
+    cudaFree(d_omega_y_sin);
+    cudaFree(d_omega_y_cos);
 }
 
 void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
@@ -869,6 +874,8 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
     cudaMemset(d_displacement_2, 0, (n_samples / 2) * sizeof(double));
     cudaMemset(d_ratio_sum, 0, (n_samples / 2) * sizeof(double));
 
+    gpu_compute_displacements<<<n_blocks, n_threads>>>(
+        d_x, d_px, d_y, d_py, d_displacement_2, n_samples / 2);
     // run the simulation
     for (unsigned int j = 0; j < n_turns.back(); j++)
     {
@@ -878,14 +885,22 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
             kick_module, d_rand_states, inverse);
 
-        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j%2 == 0 ? d_displacement_1 : d_displacement_2, n_samples / 2);
-        if (j > 1)
-        {
-            if (j % 2 == 1)
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_1, d_displacement_2, d_ratio_sum, n_samples / 2);
+        gpu_compute_displacements<<<n_blocks, n_threads>>>(
+            d_x, d_px, d_y, d_py,
+            j%2 == 0 ? d_displacement_1 : d_displacement_2,
+            n_samples / 2
+        );
+        
+        if (j % 2 == 0)
+            gpu_add_to_ratio<<<n_blocks, n_threads>>>(
+                d_displacement_1, d_displacement_2,
+                d_ratio_sum, j + 1, n_samples / 2
+            );
             else
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples / 2);            
-        }
+            gpu_add_to_ratio<<<n_blocks, n_threads>>>(
+                d_displacement_2, d_displacement_1,
+                d_ratio_sum, j + 1, n_samples / 2
+            );
 
         // if j is in the n_turns vector, then we need to compute megno
         if (j + 1 == n_turns[index])
@@ -896,7 +911,7 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             // divide by number of turns
             for (size_t i = 0; i < megno[index].size(); i++)
             {
-                megno[index][i] /= n_turns[index];
+                megno[index][i] /= n_turns[index] * 0.5;
             }
             index += 1;
         }
@@ -1110,6 +1125,10 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
                 for (unsigned int j = thread_idx; j < x.size() / 2; j += n_threads_cpu)
                 {
                     unsigned int index = 0;
+                    displacement_2[j] = displacement(
+                        x[j], px[j], y[j], py[j],
+                        x[j + x.size() / 2], px[j + x.size() / 2],
+                        y[j + x.size() / 2], py[j + x.size() / 2]);
                     for (unsigned int k = 0; k < n_turns.back(); k++)
                     {
                         henon_step(
@@ -1142,21 +1161,18 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
                                 y[j + x.size() / 2], py[j + x.size() / 2]);
                         }
 
-                        if (k > 1)
-                        {
                             if (k % 2 == 0)
                             {
-                                ratio_sum[j] += displacement_1[j] / displacement_2[j];
+                            ratio_sum[j] += k * log10(displacement_1[j] / displacement_2[j]);
                             }
                             else
                             {
-                                ratio_sum[j] += displacement_2[j] / displacement_1[j];
-                            }
+                            ratio_sum[j] += k * log10(displacement_2[j] / displacement_1[j]);
                         }
 
                         if (k + 1 == n_turns[index])
                         {
-                            megno[index][j] = ratio_sum[j] / (n_turns[index]);
+                            megno[index][j] = 2.0 * ratio_sum[j] / (n_turns[index]);
                             index += 1;
                         }
                     }

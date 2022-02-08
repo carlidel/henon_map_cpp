@@ -66,20 +66,8 @@ std::vector<double> birkhoff_weights(unsigned int n_weights)
     std::vector<double> weights(n_weights);
     for (unsigned int i = 0; i < n_weights; i++)
     {
-        if (i == 0)
-        {
-            weights[i] = 0.0;
-        }
-        else if (i == n_weights - 1)
-        {
-            weights[i] = 0.0;
-        }
-        else
-        {
-            // TODO: check if this is correct
-            double t = (double)i / (double)(n_weights - 1);
-            weights[i] = exp((t * (1.0 - t)));
-        }
+        double t = (double)i / (double)(n_weights);
+        weights[i] = exp(-1/(t * (1.0 - t)));
     }
     auto sum = std::accumulate(weights.begin(), weights.end(), 0.0);
     // multiply by 1/sum to get the weights
@@ -143,7 +131,7 @@ double birkhoff_tune(
 }
 
 
-double inline A(const double &a, const double &b, const double &c)
+double A(const double &a, const double &b, const double &c)
 {
     return (-(a + b * c) * (a - b) + b * sqrt(pow(c, 2) * pow((a + b), 2) - 2 * a * b * (2 * pow(c, 2) - c - 1))) / (pow(a, 2) + pow(b, 2) + 2 * a * b * c);
 }
@@ -152,8 +140,9 @@ double interpolation(std::vector<double> const &data)
 {
     // find index of maximum value in data
     unsigned int index = std::distance(data.begin(), std::max_element(data.begin(), data.end()));
+    double N = double(data.size());
 
-    // if the index is 0 or data.size() - 1, return the value at that index
+    // if the index is 0 or data.size() - 1, return
     if (index == 0)
     {
         return 1.0;
@@ -164,7 +153,7 @@ double interpolation(std::vector<double> const &data)
     }
 
     // if the index is in the middle, interpolate
-    double i1, i2;
+    unsigned int i1, i2;
     if (data[index - 1] > data[index + 1])
     {
         i1 = index - 1;
@@ -177,7 +166,6 @@ double interpolation(std::vector<double> const &data)
         i2 = index + 1;
     }
 
-    auto N = double(data.size());
     double value = (
         (double(index) / N) + (1.0 / (2.0*M_PI)) * asin(
             A(data[i1], data[i2], cos(2.0*M_PI/N)) * sin(2.0*M_PI/N)
@@ -327,4 +315,36 @@ std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> pl
         tunes.push_back(fft_tune(y_sub, py_sub, std::get<0>(plans[x.size() - 1]), std::get<1>(plans[x.size() - 1]), std::get<2>(plans[x.size() - 1])));
     }
     return tunes;
+}
+
+
+std::array<double, 2> get_tunes(std::vector<double> x, std::vector<double> px)
+{
+    // check if vectors are of the same size
+    if (x.size() != px.size())
+    {
+        throw std::runtime_error("get_tunes: x and px must be of the same size");
+    }
+    auto size = x.size();
+    // if any number in the sub vecros is a NaN, push back a quiet NaN
+    if (std::any_of(x.begin(), x.end(), [](double x){return std::isnan(x);}) ||
+        std::any_of(px.begin(), px.end(), [](double x){return std::isnan(x);}))
+    {
+        return std::array<double, 2>{std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()};
+    }
+
+    double birkhoff_tune_val = birkhoff_tune(x, px);
+
+    fftw_complex *in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * size);
+    fftw_complex *out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * size);
+    fftw_plan plan = fftw_plan_dft_1d(size, in, out, FFTW_FORWARD, FFTW_MEASURE);
+
+    double fft_tune_val = fft_tune(x, px, in, out, plan);
+
+    // free the memory
+    fftw_destroy_plan(plan);
+    fftw_free(in);
+    fftw_free(out);
+
+    return std::array<double, 2>{fft_tune_val, birkhoff_tune_val};
 }
