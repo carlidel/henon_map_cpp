@@ -235,8 +235,7 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("reset", &henon::reset, "Resets the engine")
 
         .def("compute_a_modulation", &henon::compute_a_modulation, "Computes a modulation",
-            py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind") = "sps", py::arg("omega_0") = NAN, py::arg("epsilon") = 0.0, py::arg("offset") = 0
-        )
+             py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind") = "sps", py::arg("omega_0") = NAN, py::arg("epsilon") = 0.0, py::arg("offset") = 0)
 
         .def("track", &henon::track, "Tracks the particles",
              py::arg("n_turns"), py::arg("mu"),
@@ -245,6 +244,13 @@ PYBIND11_MODULE(henon_map_engine, m)
 
         .def("track_MEGNO", &henon::track_MEGNO,
              "Tracks the particles with MEGNO",
+             py::arg("n_turns"),
+             py::arg("mu"), py::arg("barrier") = 100.0,
+             py::arg("kick_module") = NAN,
+             py::arg("inverse") = false)
+
+        .def("track_tangent_map", &cpu_henon::track_tangent_map,
+             "Tracks the particles with tangent map",
              py::arg("n_turns"),
              py::arg("mu"), py::arg("barrier") = 100.0,
              py::arg("kick_module") = NAN,

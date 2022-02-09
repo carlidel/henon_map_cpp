@@ -1193,3 +1193,124 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
     
     return megno;
 }
+
+std::vector<std::vector<double>> henon::track_tangent_map(
+    std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse)
+{
+    // pre allocate tangent_map space and fill it with NaNs
+    std::vector<std::vector<double>> tm(n_turns.size(), std::vector<double>(x.size(), std::numeric_limits<double>::quiet_NaN()));
+
+    // check if n_turns is valid
+    if (inverse)
+    {
+        if (n_turns.back() > global_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+    else
+    {
+        if (n_turns.back() + global_steps > allowed_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+
+    double barrier_pow_2 = barrier * barrier;
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
+    {
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                std::mt19937_64 rng;
+                for (unsigned int j = thread_idx; j < x.size(); j += n_threads_cpu)
+                {
+                    unsigned int index = 0;
+
+                    std::array<std::array<double, 4>, 4> tangent_map;
+                    // initialize tangent_map as unit matrix
+                    for (unsigned int k = 0; k < 4; k++)
+                    {
+                        for (unsigned int l = 0; l < 4; l++)
+                        {
+                            if (k == l)
+                                tangent_map[k][l] = 1.0;
+                            else
+                                tangent_map[k][l] = 0.0;
+                        }
+                    }
+                    std::array<std::array<double, 4>, 4> tangent_map_temp;
+                    std::array<std::array<double, 4>, 4> matrix_mult_temp;
+
+                    for (unsigned int k = 0; k < n_turns.back(); k++)
+                    {
+                        henon_step(
+                            x[j], px[j], y[j], py[j], steps[j],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+                        
+                        if (check_nan(x[j], px[j], y[j], py[j]))
+                        {
+                            break;
+                        }
+
+                        tangent_map_temp = tangent_matrix(
+                            x[j], px[j], y[j], py[j],
+                            omega_x_sin[steps[j]], omega_x_cos[steps[j]],
+                            omega_y_sin[steps[j]], omega_y_cos[steps[j]],
+                            mu
+                        );
+
+                        // multiply tangent_map_temp with tangent_map
+                        for (unsigned int idx1 = 0; idx1 < 4; idx1++)
+                        {
+                            for (unsigned int idx2 = 0; idx2 < 4; idx2++)
+                            {
+                                matrix_mult_temp[idx1][idx2] = 0.0;
+                                for (unsigned int idx3 = 0; idx3 < 4; idx3++)
+                                {
+                                    matrix_mult_temp[idx1][idx2] += tangent_map_temp[idx1][idx3] * tangent_map[idx3][idx2];
+                                }
+                            }
+                        }
+                        // copy matrix_mult_temp to tangent_map
+                        for (unsigned int idx1 = 0; idx1 < 4; idx1++)
+                        {
+                            for (unsigned int idx2 = 0; idx2 < 4; idx2++)
+                            {
+                                tangent_map[idx1][idx2] = matrix_mult_temp[idx1][idx2];
+                            }
+                        }
+
+                        if (k + 1 == n_turns[index])
+                        {
+                            double indicator = 0.0;
+                            for (unsigned int idx1 = 0; idx1 < 4; idx1++)
+                            {
+                                for (unsigned int idx2 = 0; idx2 < 4; idx2++)
+                                {
+                                    indicator += tangent_map[idx1][idx2] * tangent_map[idx1][idx2];
+                                }
+                            }
+                            tm[index][j] = indicator;
+                            index += 1;
+                        }
+                    }
+                }
+            },
+            i));
+    }
+
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    // update global_steps
+    if (!inverse)
+        global_steps += n_turns.back();
+    else
+        global_steps -= n_turns.back();
+
+    return tm;
+}
