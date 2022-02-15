@@ -67,6 +67,59 @@ __host__ __device__ void rotation(double &x, double &px, const double &sin, cons
     }
 }
 
+__host__ __device__ std::array<std::array<double, 4>, 4> tangent_matrix(const double &x, const double &px, const double &y, const double &py, const double &sx, const double &cx, const double &sy, const double &cy, const double &mu)
+{
+    std::array<std::array<double, 4>, 4> matrix;
+    matrix[0][0] = cx + sx * (2 * x + mu * 3 * x * x - mu * 3 * y * y);
+    matrix[0][1] = sx;
+    matrix[0][2] = sx * (-2 * y - mu * 6 * x * y);
+    matrix[0][3] = 0.0;
+
+    matrix[1][0] = -sx + cx * (2 * x + mu * 3 * x * x - mu * 3 * y * y);
+    matrix[1][1] = cx;
+    matrix[1][2] = cx * (-2 * y - mu * 6 * x * y);
+    matrix[1][3] = 0.0;
+
+    matrix[2][0] = sy * (-2 * y - mu * 6 * x * y);
+    matrix[2][1] = 0.0;
+    matrix[2][2] = cy + sy * (-2 * x - mu * 3 * x * x + mu * 3 * y * y);
+    matrix[2][3] = sy;
+
+    matrix[3][0] = cy * (-2 * y - mu * 6 * x * y);
+    matrix[3][1] = 0.0;
+    matrix[3][2] = -sy + cy * (-2 * x - mu * 3 * x * x + mu * 3 * y * y);
+    matrix[3][3] = cy;
+
+    return matrix;
+}
+
+__host__ __device__ std::array<std::array<double, 4>, 4> multiply_matrix(const double *m2, const std::array<std::array<double, 4>, 4> &m1)
+{
+    std::array<std::array<double, 4>, 4> m3;
+    for (unsigned int i = 0; i < 4; i++)
+    {
+        for (unsigned int j = 0; j < 4; j++)
+        {
+            m3[i][j] = 0.0;
+            for (unsigned int k = 0; k < 4; k++)
+            {
+                m3[i][j] += m1[i][k] * m2[k * 4 + j];
+            }
+        }
+    }
+    return m3;
+}
+
+__host__ __device__ double tr_transpose_matrix(const double *x)
+{
+    double result = 0.0;
+    for (int i = 0; i < 16; i++)
+    {
+        result += x[i] * x[i];
+    }
+    return result;
+}
+
 __host__ void random_4d_kick(double &x, double &px, double &y, double &py, const double &kick_module, std::mt19937_64 &generator)
 {
     // create random uniform distribution between -1 and 1
@@ -310,9 +363,10 @@ __global__ void gpu_compute_displacements_and_realign(
 }
 
 __global__ void gpu_add_to_ratio(
+    double *new_displacement,
     double *old_displacement,
-    double *new_displacements,
     double *ratio,
+    const unsigned int step,
     const size_t n_samples)
 {
     size_t j = threadIdx.x + blockIdx.x * blockDim.x;
@@ -321,13 +375,13 @@ __global__ void gpu_add_to_ratio(
         return;
     }
 
-    if (isnan(old_displacement[j]) || isnan(new_displacements[j]))
+    if (isnan(old_displacement[j]) || isnan(new_displacement[j]))
     {
         ratio[j] = NAN;
     }
     else
     {
-        ratio[j] += new_displacements[j] / old_displacement[j];
+        ratio[j] += step * log10(new_displacement[j] / old_displacement[j]);
     }
 }
 
@@ -809,6 +863,10 @@ gpu_henon::~gpu_henon()
     cudaFree(d_py);
     cudaFree(d_steps);
     cudaFree(d_rand_states);
+    cudaFree(d_omega_x_sin);
+    cudaFree(d_omega_x_cos);
+    cudaFree(d_omega_y_sin);
+    cudaFree(d_omega_y_cos);
 }
 
 void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
@@ -924,6 +982,8 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
     cudaMemset(d_displacement_2, 0, (n_samples / 2) * sizeof(double));
     cudaMemset(d_ratio_sum, 0, (n_samples / 2) * sizeof(double));
 
+    gpu_compute_displacements<<<n_blocks, n_threads>>>(
+        d_x, d_px, d_y, d_py, d_displacement_2, n_samples / 2);
     // run the simulation
     for (unsigned int j = 0; j < n_turns.back(); j++)
     {
@@ -933,14 +993,22 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
             kick_module, d_rand_states, inverse);
 
-        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j % 2 == 0 ? d_displacement_1 : d_displacement_2, n_samples / 2);
-        if (j > 1)
-        {
-            if (j % 2 == 1)
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_1, d_displacement_2, d_ratio_sum, n_samples / 2);
+        gpu_compute_displacements<<<n_blocks, n_threads>>>(
+            d_x, d_px, d_y, d_py,
+            j%2 == 0 ? d_displacement_1 : d_displacement_2,
+            n_samples / 2
+        );
+        
+        if (j % 2 == 0)
+            gpu_add_to_ratio<<<n_blocks, n_threads>>>(
+                d_displacement_1, d_displacement_2,
+                d_ratio_sum, j + 1, n_samples / 2
+            );
             else
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples / 2);
-        }
+            gpu_add_to_ratio<<<n_blocks, n_threads>>>(
+                d_displacement_2, d_displacement_1,
+                d_ratio_sum, j + 1, n_samples / 2
+            );
 
         // if j is in the n_turns vector, then we need to compute megno
         if (j + 1 == n_turns[index])
@@ -951,7 +1019,7 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             // divide by number of turns
             for (size_t i = 0; i < megno[index].size(); i++)
             {
-                megno[index][i] /= n_turns[index];
+                megno[index][i] /= n_turns[index] * 0.5;
             }
             index += 1;
         }
@@ -1222,6 +1290,10 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
                 for (unsigned int j = thread_idx; j < x.size() / 2; j += n_threads_cpu)
                 {
                     unsigned int index = 0;
+                    displacement_2[j] = displacement(
+                        x[j], px[j], y[j], py[j],
+                        x[j + x.size() / 2], px[j + x.size() / 2],
+                        y[j + x.size() / 2], py[j + x.size() / 2]);
                     for (unsigned int k = 0; k < n_turns.back(); k++)
                     {
                         henon_step(
@@ -1254,21 +1326,18 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
                                 y[j + x.size() / 2], py[j + x.size() / 2]);
                         }
 
-                        if (k > 1)
-                        {
                             if (k % 2 == 0)
                             {
-                                ratio_sum[j] += displacement_1[j] / displacement_2[j];
+                            ratio_sum[j] += k * log10(displacement_1[j] / displacement_2[j]);
                             }
                             else
                             {
-                                ratio_sum[j] += displacement_2[j] / displacement_1[j];
-                            }
+                            ratio_sum[j] += k * log10(displacement_2[j] / displacement_1[j]);
                         }
 
                         if (k + 1 == n_turns[index])
                         {
-                            megno[index][j] = ratio_sum[j] / (n_turns[index]);
+                            megno[index][j] = 2.0 * ratio_sum[j] / (n_turns[index]);
                             index += 1;
                         }
                     }
@@ -1384,4 +1453,124 @@ std::vector<std::vector<double>> cpu_henon::track_realignments(
         global_steps -= n_turns.back();
 
     return disp_values;
+}
+
+std::vector<std::vector<double>> henon::track_tangent_map(
+    std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse)
+{
+    // pre allocate tangent_map space and fill it with NaNs
+    std::vector<std::vector<double>> tm(n_turns.size(), std::vector<double>(x.size(), std::numeric_limits<double>::quiet_NaN()));
+
+    // check if n_turns is valid
+    if (inverse)
+    {
+        if (n_turns.back() > global_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+    else
+    {
+        if (n_turns.back() + global_steps > allowed_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+
+    double barrier_pow_2 = barrier * barrier;
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
+    {
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                std::mt19937_64 rng;
+                for (unsigned int j = thread_idx; j < x.size(); j += n_threads_cpu)
+                {
+                    unsigned int index = 0;
+
+                    std::array<std::array<double, 4>, 4> tangent_map;
+                    // initialize tangent_map as unit matrix
+                    for (unsigned int k = 0; k < 4; k++)
+                    {
+                        for (unsigned int l = 0; l < 4; l++)
+                        {
+                            if (k == l)
+                                tangent_map[k][l] = 1.0;
+                            else
+                                tangent_map[k][l] = 0.0;
+                        }
+                    }
+                    std::array<std::array<double, 4>, 4> tangent_map_temp;
+                    std::array<std::array<double, 4>, 4> matrix_mult_temp;
+
+                    for (unsigned int k = 0; k < n_turns.back(); k++)
+                    {
+                        henon_step(
+                            x[j], px[j], y[j], py[j], steps[j],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+
+                        if (check_nan(x[j], px[j], y[j], py[j]))
+                        {
+                            break;
+                        }
+
+                        tangent_map_temp = tangent_matrix(
+                            x[j], px[j], y[j], py[j],
+                            omega_x_sin[steps[j]], omega_x_cos[steps[j]],
+                            omega_y_sin[steps[j]], omega_y_cos[steps[j]],
+                            mu);
+
+                        // multiply tangent_map_temp with tangent_map
+                        for (unsigned int idx1 = 0; idx1 < 4; idx1++)
+                        {
+                            for (unsigned int idx2 = 0; idx2 < 4; idx2++)
+                            {
+                                matrix_mult_temp[idx1][idx2] = 0.0;
+                                for (unsigned int idx3 = 0; idx3 < 4; idx3++)
+                                {
+                                    matrix_mult_temp[idx1][idx2] += tangent_map_temp[idx1][idx3] * tangent_map[idx3][idx2];
+                                }
+                            }
+                        }
+                        // copy matrix_mult_temp to tangent_map
+                        for (unsigned int idx1 = 0; idx1 < 4; idx1++)
+                        {
+                            for (unsigned int idx2 = 0; idx2 < 4; idx2++)
+                            {
+                                tangent_map[idx1][idx2] = matrix_mult_temp[idx1][idx2];
+                            }
+                        }
+
+                        if (k + 1 == n_turns[index])
+                        {
+                            double indicator = 0.0;
+                            for (unsigned int idx1 = 0; idx1 < 4; idx1++)
+                            {
+                                for (unsigned int idx2 = 0; idx2 < 4; idx2++)
+                                {
+                                    indicator += tangent_map[idx1][idx2] * tangent_map[idx1][idx2];
+                                }
+                            }
+                            tm[index][j] = indicator;
+                            index += 1;
+                        }
+                    }
+                }
+            },
+            i));
+    }
+
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    // update global_steps
+    if (!inverse)
+        global_steps += n_turns.back();
+    else
+        global_steps -= n_turns.back();
+
+    return tm;
 }

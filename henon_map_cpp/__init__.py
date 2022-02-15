@@ -102,6 +102,23 @@ class henon_tracker():
 
         return np.asarray(displacement)
 
+    def track_tangent_map(self, n_turns, mu, barrier=10.0, kick_module=np.nan):
+
+        # make sure that n_turns is a 1D sorted array
+        if not isinstance(n_turns, np.ndarray):
+            n_turns = np.asarray(n_turns)
+
+        if n_turns.ndim != 1:
+            raise ValueError("n_turns must be a 1D array.")
+
+        if not np.all(np.diff(n_turns) > 0):
+            raise ValueError("n_turns must be sorted in increasing order.")
+
+        megno = self.engine.track_tangent_map(
+            list(n_turns), mu, barrier, kick_module, False)
+
+        return np.asarray(megno)
+
     def full_track(self, n_turns, mu, barrier=10.0, kick_module=np.nan):
         """Track the system for n_turns turns.
 

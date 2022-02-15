@@ -36,4 +36,6 @@ std::vector<double> fft_tune_vec(
     std::vector<unsigned int> const &to,
     std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> plans);
 
+std::array<double, 2> get_tunes(std::vector<double> x, std::vector<double> px);
+
 #endif // DYNAMIC_INDICATOR_H

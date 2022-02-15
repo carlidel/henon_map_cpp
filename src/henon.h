@@ -128,6 +128,12 @@ public:
         double kick_module = NAN, 
         std::vector<unsigned int> from = std::vector<unsigned int>(), std::vector<unsigned int> to = std::vector<unsigned int>());
 
+    std::vector<std::vector<double>> track_tangent_map(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false);
+
     // getters
     virtual std::vector<double> get_x() const;
     virtual std::vector<double> get_px() const;
@@ -225,9 +231,9 @@ public:
     ~cpu_henon();
 
     void track(
-        unsigned int n_turns, double mu, 
-        double barrier = 100.0, 
-        double kick_module = NAN, 
+        unsigned int n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
         bool inverse = false) override;
 
     std::vector<std::vector<double>> track_MEGNO(

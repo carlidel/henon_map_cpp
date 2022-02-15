@@ -11,6 +11,7 @@
 
 #include "henon.h"
 #include "modulation.h"
+#include "dynamic_indicator.h"
 
 bool has_cuda_error_happened() {
     cudaError_t err = cudaGetLastError();
@@ -263,6 +264,10 @@ PYBIND11_MODULE(henon_map_engine, m)
         py::arg("from"), py::arg("to"), py::arg("start"), py::arg("end")
     );
 
+    m.def("get_tunes", &get_tunes, "Get tunes",
+        py::arg("x"), py::arg("px")
+    );
+
     py::class_<henon, pyhenon>(m, "henon")
         .def(py::init<>())
         .def("reset", &henon::reset, "Resets the engine")
@@ -290,6 +295,13 @@ PYBIND11_MODULE(henon_map_engine, m)
              py::arg("inverse") = false,
              py::arg("low_module") = 1e-14,
              py::arg("barrier_module") = 1e-8)
+
+        .def("track_tangent_map", &cpu_henon::track_tangent_map,
+             "Tracks the particles with tangent map",
+             py::arg("n_turns"),
+             py::arg("mu"), py::arg("barrier") = 100.0,
+             py::arg("kick_module") = NAN,
+             py::arg("inverse") = false)
 
         .def("full_track", &henon::full_track, "Tracks the particles",
              py::arg("n_turns"), py::arg("mu"),
