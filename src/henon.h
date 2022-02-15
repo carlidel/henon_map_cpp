@@ -83,6 +83,12 @@ public:
         double kick_module = NAN,
         bool inverse = false) = 0;
 
+    virtual std::vector<std::vector<double>> track_realignments(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) = 0;
+
     std::array<std::vector<std::vector<double>>, 4> full_track(unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN);
 
     std::vector<std::vector<double>> full_track_and_fft(
@@ -187,6 +193,12 @@ public:
         double kick_module = NAN,
         bool inverse = false) override;
 
+    std::vector<std::vector<double>> track_realignments(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override;
+
     // getters
     virtual std::vector<double> get_x() const override;
     virtual std::vector<double> get_px() const override;
@@ -223,6 +235,12 @@ public:
         double barrier = 100.0,
         double kick_module = NAN,
         bool inverse = false) override;
+
+    std::vector<std::vector<double>> track_realignments(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override;
 };
 
 #endif // HENON_CU_

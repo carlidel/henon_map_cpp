@@ -85,6 +85,23 @@ class henon_tracker():
         
         return np.asarray(megno)
 
+    def track_realignments(self, n_turns, mu, barrier=10.0, kick_module=np.nan, low_module=1e-14, barrier_module=1e-8):
+
+        # make sure that n_turns is a 1D sorted array
+        if not isinstance(n_turns, np.ndarray):
+            n_turns = np.asarray(n_turns)
+
+        if n_turns.ndim != 1:
+            raise ValueError("n_turns must be a 1D array.")
+
+        if not np.all(np.diff(n_turns) > 0):
+            raise ValueError("n_turns must be sorted in increasing order.")
+
+        displacement = self.engine.track_realignments(
+            list(n_turns), mu, barrier, kick_module, False, low_module, barrier_module)
+
+        return np.asarray(displacement)
+
     def full_track(self, n_turns, mu, barrier=10.0, kick_module=np.nan):
         """Track the system for n_turns turns.
 

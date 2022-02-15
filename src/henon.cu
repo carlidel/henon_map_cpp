@@ -127,6 +127,14 @@ __host__ __device__ double displacement(const double &x1, const double &px1, con
     return sqrt((x1 - x2) * (x1 - x2) + (px1 - px2) * (px1 - px2) + (y1 - y2) * (y1 - y2) + (py1 - py2) * (py1 - py2));
 }
 
+__host__ __device__ void realign(double &x, double &px, double &y, double &py, const double &x_center, const double &px_center, const double &y_center, const double &py_center, const double &initial_module, const double &final_module)
+{
+    x = x_center + (x - x_center) * (final_module / initial_module);
+    px = px_center + (px - px_center) * (final_module / initial_module);
+    y = y_center + (y - y_center) * (final_module / initial_module);
+    py = py_center + (py - py_center) * (final_module / initial_module);
+}
+
 __host__ void henon_step(
     double &x, double &px, double &y, double &py,
     unsigned int &steps,
@@ -253,11 +261,17 @@ __device__ void henon_step(
 
 __global__ void gpu_compute_displacements(
     double *x1, double *px1, double *y1, double *py1,
-    double *out, size_t size)
+    double *out, const size_t size)
 {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= size)
     {
+        return;
+    }
+
+    if (check_nan(x1[i], px1[i], y1[i], py1[i]) || check_nan(x1[i + size], px1[i + size], y1[i + size], py1[i + size]))
+    {
+        out[i] = NAN;
         return;
     }
 
@@ -267,6 +281,32 @@ __global__ void gpu_compute_displacements(
     double py2 = py1[i + size];
 
     out[i] = displacement(x1[i], px1[i], y1[i], py1[i], x2, px2, y2, py2);
+}
+
+__global__ void gpu_compute_displacements_and_realign(
+    double *x1, double *px1, double *y1, double *py1,
+    double *out, const size_t size, const double low_module, const double limit_module)
+{
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= size)
+    {
+        return;
+    }
+
+    if (check_nan(x1[i], px1[i], y1[i], py1[i]) || check_nan(x1[i + size], px1[i + size], y1[i + size], py1[i + size]))
+    {
+        out[i] = NAN;
+        return;
+    }
+    
+    double tmp_displacement = displacement(x1[i], px1[i], y1[i], py1[i], x1[i + size], px1[i + size], y1[i + size], py1[i + size]);
+    if (tmp_displacement > limit_module)
+    {
+        out[i] += tmp_displacement - low_module;
+        realign(
+            x1[i + size], px1[i + size], y1[i + size], py1[i + size],
+            x1[i], px1[i], y1[i], py1[i], tmp_displacement, low_module);
+    }
 }
 
 __global__ void gpu_add_to_ratio(
@@ -289,6 +329,21 @@ __global__ void gpu_add_to_ratio(
     {
         ratio[j] += new_displacements[j] / old_displacement[j];
     }
+}
+
+__global__ void gpu_sum_two_arrays(
+    double *out,
+    const double *in1,
+    const double *in2,
+    const size_t size)
+{
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= size)
+    {
+        return;
+    }
+
+    out[i] = in1[i] + in2[i];
 }
 
 __global__ void gpu_henon_track(
@@ -878,13 +933,13 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
             kick_module, d_rand_states, inverse);
 
-        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j%2 == 0 ? d_displacement_1 : d_displacement_2, n_samples / 2);
+        gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, j % 2 == 0 ? d_displacement_1 : d_displacement_2, n_samples / 2);
         if (j > 1)
         {
             if (j % 2 == 1)
                 gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_1, d_displacement_2, d_ratio_sum, n_samples / 2);
             else
-                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples / 2);            
+                gpu_add_to_ratio<<<n_blocks, n_threads>>>(d_displacement_2, d_displacement_1, d_ratio_sum, n_samples / 2);
         }
 
         // if j is in the n_turns vector, then we need to compute megno
@@ -892,7 +947,7 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
         {
             cudaMemcpy(
                 megno[index].data(), d_ratio_sum, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
-            
+
             // divide by number of turns
             for (size_t i = 0; i < megno[index].size(); i++)
             {
@@ -900,7 +955,6 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             }
             index += 1;
         }
-
     }
     // check for cuda errors
     cudaError_t err = cudaGetLastError();
@@ -909,7 +963,7 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
         std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
         exit(1);
     }
-    
+
     // clear the displacement vectors
     cudaFree(d_displacement_1);
     cudaFree(d_displacement_2);
@@ -922,6 +976,64 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
         global_steps -= n_turns.back();
 
     return megno;
+}
+
+std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
+{
+    // pre allocate megno space and fill it with NaNs
+    std::vector<std::vector<double>> disp_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
+    
+    std::vector<double> disp_tmp(n_samples / 2);
+    unsigned int index = 0;
+
+    double *d_displacement_realign;
+    double *d_displacement_at_check;
+
+    cudaMalloc(&d_displacement_realign, (n_samples / 2) * sizeof(double));
+    cudaMalloc(&d_displacement_at_check, (n_samples / 2) * sizeof(double));
+
+    // initialize vectors to 0
+    cudaMemset(d_displacement_realign, 0, (n_samples / 2) * sizeof(double));
+    cudaMemset(d_displacement_at_check, 0, (n_samples / 2) * sizeof(double));
+
+    // run the simulation
+    for (unsigned int j = 0; j < n_turns.back(); j++)
+    {
+        gpu_henon_track<<<n_blocks, n_threads>>>(
+            d_x, d_px, d_y, d_py, d_steps,
+            n_samples, 1, barrier * barrier, mu,
+            d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
+            kick_module, d_rand_states, inverse);
+
+        gpu_compute_displacements_and_realign<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_realign, n_samples / 2, low_module, barrier_module);
+
+        if (j + 1 == n_turns[index])
+        {
+            gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_at_check, n_samples / 2);
+            gpu_sum_two_arrays<<<n_blocks, n_threads>>>(d_displacement_at_check, d_displacement_at_check, d_displacement_realign, n_samples / 2);
+            cudaMemcpy(
+                disp_values[index].data(), d_displacement_at_check, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+            index += 1;
+        }
+    }
+    // check for cuda errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+    {
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+        exit(1);
+    }
+
+    // clear the displacement vectors
+    cudaFree(d_displacement_realign);
+
+    // Update the counter
+    if (!inverse)
+        global_steps += n_turns.back();
+    else
+        global_steps -= n_turns.back();
+
+    return disp_values;
 }
 
 // getters
@@ -1126,7 +1238,7 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
                             omega_y_sin.data(), omega_y_cos.data(),
                             barrier_pow_2, mu, kick_module,
                             rng, inverse);
-                        
+
                         if (k % 2 == 0)
                         {
                             displacement_1[j] = displacement(
@@ -1174,6 +1286,102 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
         global_steps += n_turns.back();
     else
         global_steps -= n_turns.back();
-    
+
     return megno;
+}
+
+std::vector<std::vector<double>> cpu_henon::track_realignments(
+    std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
+{
+    // pre allocate displacement space and fill it with NaNs
+    std::vector<std::vector<double>> disp_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
+
+    std::vector<double> displacement_realign(x.size() / 2, 0.0);
+
+    // check if n_turns is valid
+    if (inverse)
+    {
+        if (n_turns.back() > global_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+    else
+    {
+        if (n_turns.back() + global_steps > allowed_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+
+    double barrier_pow_2 = barrier * barrier;
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
+    {
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                std::mt19937_64 rng;
+                for (unsigned int j = thread_idx; j < x.size() / 2; j += n_threads_cpu)
+                {
+                    unsigned int index = 0;
+                    for (unsigned int k = 0; k < n_turns.back(); k++)
+                    {
+                        henon_step(
+                            x[j], px[j], y[j], py[j], steps[j],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+                        henon_step(
+                            x[j + x.size() / 2], px[j + x.size() / 2],
+                            y[j + x.size() / 2], py[j + x.size() / 2],
+                            steps[j + x.size() / 2],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+
+                        if (check_nan(x[j], px[j], y[j], py[j]) || check_nan(x[j + x.size() / 2], px[j + x.size() / 2], y[j + x.size() / 2], py[j + x.size() / 2]))
+                        {
+                            break;
+                        }
+
+                        double tmp_displacement = displacement(
+                            x[j], px[j], y[j], py[j],
+                            x[j + x.size() / 2], px[j + x.size() / 2],
+                            y[j + x.size() / 2], py[j + x.size() / 2]);
+                        
+                        if (tmp_displacement > barrier_module)
+                        {
+                            displacement_realign[j] += tmp_displacement - low_module;
+                            realign(
+                                x[j + x.size() / 2], px[j + x.size() / 2],
+                                y[j + x.size() / 2], py[j + x.size() / 2],
+                                x[j], px[j], y[j], py[j],
+                                tmp_displacement, low_module
+                            );
+                            tmp_displacement = low_module;
+                        }
+
+                        if (k + 1 == n_turns[index])
+                        {
+                            disp_values[index][j] = tmp_displacement + displacement_realign[j];
+                            index += 1;
+                        }
+                    }
+                }
+            },
+            i));
+    }
+
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    // update global_steps
+    if (!inverse)
+        global_steps += n_turns.back();
+    else
+        global_steps -= n_turns.back();
+
+    return disp_values;
 }

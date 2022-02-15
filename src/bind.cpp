@@ -77,8 +77,20 @@ public:
             std::vector<std::vector<double>>,
             henon,
             track_MEGNO,
-            n_turns, mu, barrier, kick_module, inverse
-        );
+            n_turns, mu, barrier, kick_module, inverse);
+    }
+
+    std::vector<std::vector<double>> track_realignments(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
+    {
+        PYBIND11_OVERRIDE_PURE(
+            std::vector<std::vector<double>>,
+            henon,
+            track_realignments,
+            n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
     }
 
     std::vector<double> get_x() const override { PYBIND11_OVERRIDE(std::vector<double>, henon, get_x); }
@@ -136,6 +148,19 @@ public:
             n_turns, mu, barrier, kick_module, inverse);
     }
 
+    std::vector<std::vector<double>> track_realignments(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
+    {
+        PYBIND11_OVERRIDE(
+            std::vector<std::vector<double>>,
+            cpu_henon,
+            track_realignments,
+            n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
+    }
+
     std::vector<double> get_x() const override { PYBIND11_OVERRIDE(std::vector<double>, cpu_henon, get_x); }
     std::vector<double> get_px() const override { PYBIND11_OVERRIDE(std::vector<double>, cpu_henon, get_px); }
     std::vector<double> get_y() const override { PYBIND11_OVERRIDE(std::vector<double>, cpu_henon, get_y); }
@@ -191,6 +216,19 @@ public:
             n_turns, mu, barrier, kick_module, inverse);
     }
 
+    std::vector<std::vector<double>> track_realignments(
+        std::vector<unsigned int> n_turns, double mu,
+        double barrier = 100.0,
+        double kick_module = NAN,
+        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
+    {
+        PYBIND11_OVERRIDE(
+            std::vector<std::vector<double>>,
+            gpu_henon,
+            track_realignments,
+            n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
+    }
+
     std::vector<double> get_x() const override { PYBIND11_OVERRIDE(std::vector<double>, gpu_henon, get_x); }
     std::vector<double> get_px() const override { PYBIND11_OVERRIDE(std::vector<double>, gpu_henon, get_px); }
     std::vector<double> get_y() const override { PYBIND11_OVERRIDE(std::vector<double>, gpu_henon, get_y); }
@@ -230,8 +268,7 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("reset", &henon::reset, "Resets the engine")
 
         .def("compute_a_modulation", &henon::compute_a_modulation, "Computes a modulation",
-            py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind") = "sps", py::arg("omega_0") = NAN, py::arg("epsilon") = 0.0, py::arg("offset") = 0
-        )
+             py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind") = "sps", py::arg("omega_0") = NAN, py::arg("epsilon") = 0.0, py::arg("offset") = 0)
 
         .def("track", &henon::track, "Tracks the particles",
              py::arg("n_turns"), py::arg("mu"),
@@ -244,6 +281,15 @@ PYBIND11_MODULE(henon_map_engine, m)
              py::arg("mu"), py::arg("barrier") = 100.0,
              py::arg("kick_module") = NAN,
              py::arg("inverse") = false)
+
+        .def("track_realignments", &henon::track_realignments,
+             "Tracks the particles with realignments",
+             py::arg("n_turns"),
+             py::arg("mu"), py::arg("barrier") = 100.0,
+             py::arg("kick_module") = NAN,
+             py::arg("inverse") = false,
+             py::arg("low_module") = 1e-14,
+             py::arg("barrier_module") = 1e-8)
 
         .def("full_track", &henon::full_track, "Tracks the particles",
              py::arg("n_turns"), py::arg("mu"),
