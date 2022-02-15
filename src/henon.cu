@@ -1094,6 +1094,7 @@ std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsig
 
     // clear the displacement vectors
     cudaFree(d_displacement_realign);
+    cudaFree(d_displacement_at_check);
 
     // Update the counter
     if (!inverse)
