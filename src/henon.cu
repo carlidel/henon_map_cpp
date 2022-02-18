@@ -4,6 +4,17 @@
     namespace py = pybind11;
 #endif
 
+void check_cuda_errors() {
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+#ifdef PYBIND
+        py::print(cudaGetErrorString(err));
+#else
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+#endif 
+        exit(1);
+    }
+}
 
 __host__ __device__ bool check_barrier(const double &x, const double &px, const double &y, const double &py, const double &barrier_pow_2)
 {
@@ -386,8 +397,7 @@ __global__ void gpu_add_to_ratio(
 }
 
 __global__ void gpu_sum_two_arrays(
-    double *out,
-    const double *in1,
+    double *in1,
     const double *in2,
     const size_t size)
 {
@@ -397,7 +407,7 @@ __global__ void gpu_sum_two_arrays(
         return;
     }
 
-    out[i] = in1[i] + in2[i];
+    in1[i] += in2[i];
 }
 
 __global__ void gpu_henon_track(
@@ -818,17 +828,22 @@ gpu_henon::gpu_henon(const std::vector<double> &x_init,
               const std::vector<double> &py_init) : 
     henon(x_init, px_init, y_init, py_init)
 {
+#ifdef PYBIND
+    py::print("Initializing GPU henon...");
+#endif
     // load vectors on gpu
     cudaMalloc(&d_x, x.size() * sizeof(double));
     cudaMalloc(&d_px, px.size() * sizeof(double));
     cudaMalloc(&d_y, y.size() * sizeof(double));
     cudaMalloc(&d_py, py.size() * sizeof(double));
     cudaMalloc(&d_steps, steps.size() * sizeof(unsigned int));
+    check_cuda_errors();
 
     cudaMalloc(&d_omega_x_sin, 256 * sizeof(double));
     cudaMalloc(&d_omega_x_cos, 256 * sizeof(double));
     cudaMalloc(&d_omega_y_sin, 256 * sizeof(double));
     cudaMalloc(&d_omega_y_cos, 256 * sizeof(double));
+    check_cuda_errors();
 
     // copy vectors to gpu
     cudaMemcpy(d_x, x.data(), x.size() * sizeof(double), cudaMemcpyHostToDevice);
@@ -842,6 +857,7 @@ gpu_henon::gpu_henon(const std::vector<double> &x_init,
     cudaMemset(d_omega_x_cos, cos(M_PI / 6), 256 * sizeof(double));
     cudaMemset(d_omega_y_sin, sin(M_PI / 6), 256 * sizeof(double));
     cudaMemset(d_omega_y_cos, cos(M_PI / 6), 256 * sizeof(double));
+    check_cuda_errors();
 
     allowed_steps = 256;
 
@@ -853,6 +869,10 @@ gpu_henon::gpu_henon(const std::vector<double> &x_init,
     // initialize curandom states
     cudaMalloc(&d_rand_states, n_threads * n_blocks * sizeof(curandState));
     setup_random_states<<<n_blocks, n_threads>>>(d_rand_states, clock());
+    check_cuda_errors();
+#ifdef PYBIND
+    py::print("Done initializing GPU henon...");
+#endif
 }
 
 gpu_henon::~gpu_henon()
@@ -867,10 +887,14 @@ gpu_henon::~gpu_henon()
     cudaFree(d_omega_x_cos);
     cudaFree(d_omega_y_sin);
     cudaFree(d_omega_y_cos);
+    check_cuda_errors();
 }
 
 void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
 {
+#ifdef PYBIND
+    py::print("Computing a modulation...");
+#endif
     // compute a modulation
     tie(omega_x_vec, omega_y_vec) = pick_a_modulation(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset);
 
@@ -894,17 +918,22 @@ void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, doubl
     cudaFree(d_omega_y_sin);
     cudaFree(d_omega_y_cos);
 
+    check_cuda_errors();
+
     // copy to gpu
     cudaMalloc(&d_omega_x_sin, omega_x_sin.size() * sizeof(double));
     cudaMalloc(&d_omega_x_cos, omega_x_cos.size() * sizeof(double));
     cudaMalloc(&d_omega_y_sin, omega_y_sin.size() * sizeof(double));
     cudaMalloc(&d_omega_y_cos, omega_y_cos.size() * sizeof(double));
 
+    check_cuda_errors();
+
     cudaMemcpy(d_omega_x_sin, omega_x_sin.data(), omega_x_sin.size() * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_omega_x_cos, omega_x_cos.data(), omega_x_cos.size() * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_omega_y_sin, omega_y_sin.data(), omega_y_sin.size() * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_omega_y_cos, omega_y_cos.data(), omega_y_cos.size() * sizeof(double), cudaMemcpyHostToDevice);
 
+    check_cuda_errors();
     allowed_steps = n_turns;
 }
 
@@ -948,14 +977,7 @@ void gpu_henon::track(unsigned int n_turns, double mu, double barrier, double ki
         n_samples, n_turns, barrier * barrier, mu,
         d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
         kick_module, d_rand_states, inverse);
-    // check for cuda errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
-        exit(1);
-    }
-
+    
     // Update the counter
     if (!inverse)
         global_steps += n_turns;
@@ -1024,13 +1046,6 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
             index += 1;
         }
     }
-    // check for cuda errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
-        exit(1);
-    }
 
     // clear the displacement vectors
     cudaFree(d_displacement_1);
@@ -1078,18 +1093,11 @@ std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsig
         if (j + 1 == n_turns[index])
         {
             gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_at_check, n_samples / 2);
-            gpu_sum_two_arrays<<<n_blocks, n_threads>>>(d_displacement_at_check, d_displacement_at_check, d_displacement_realign, n_samples / 2);
+            gpu_sum_two_arrays<<<n_blocks, n_threads>>>(d_displacement_at_check, d_displacement_realign, n_samples / 2);
             cudaMemcpy(
                 disp_values[index].data(), d_displacement_at_check, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             index += 1;
         }
-    }
-    // check for cuda errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
-        exit(1);
     }
 
     // clear the displacement vectors
