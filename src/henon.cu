@@ -7,11 +7,8 @@
 void check_cuda_errors() {
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-#ifdef PYBIND
-        py::print(cudaGetErrorString(err));
-#else
+        std::cout << "CUDA error: " << cudaGetErrorString(err) << std::endl;
         std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
-#endif 
         exit(1);
     }
 }
@@ -600,9 +597,8 @@ std::array<std::vector<std::vector<double>>, 4> henon::full_track(unsigned int n
     if (n_turns + global_steps > allowed_steps)
         throw std::invalid_argument("cpu_henon::full_track: n_turns is too large");
 
-#ifdef PYBIND
-    py::print("Allocating vectors...");
-#endif
+    std::cout<< "Allocating vectors..." << std::endl;
+
     // allocate 2d double vectors
     std::vector<std::vector<double>> x_vec(x.size(), std::vector<double>(n_turns+1, NAN));
     std::vector<std::vector<double>> px_vec(x.size(), std::vector<double>(n_turns+1, NAN));
@@ -622,9 +618,9 @@ std::array<std::vector<std::vector<double>>, 4> henon::full_track(unsigned int n
 
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
-#ifdef PYBIND
-    py::print("Starting threads...");
-#endif
+
+    std::cout << "Starting threads..." << std::endl;
+
     for (unsigned int i = 0; i < n_threads_cpu; i++)
     {
         threads.push_back(std::thread(
@@ -658,9 +654,7 @@ std::array<std::vector<std::vector<double>>, 4> henon::full_track(unsigned int n
     for (auto &t : threads)
         t.join();
 
-    #ifdef PYBIND
-        py::print("Returning results...");    
-    #endif
+    std::cout << "Returning results..." << std::endl;
 
     global_steps += n_turns;
     return {x_vec, px_vec, y_vec, py_vec};
@@ -676,9 +670,9 @@ std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_tur
 
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
-#ifdef PYBIND
-    py::print("Starting threads...");
-#endif
+
+    std::cout << "Starting threads..." << std::endl;
+    
     std::vector<std::vector<double>> result_vec(x.size());
     for (unsigned int i = 0; i < n_threads_cpu; i++)
     {
@@ -722,9 +716,7 @@ std::vector<std::vector<double>> henon::full_track_and_lambda(unsigned int n_tur
     for (auto &t : threads)
         t.join();
 
-    #ifdef PYBIND
-        py::print("Returning results...");    
-    #endif
+    std::cout << "Returning results..." << std::endl;    
 
     global_steps += n_turns;
     return result_vec;
@@ -762,9 +754,9 @@ std::vector<std::vector<double>> henon::fft_tunes(unsigned int n_turns, double m
 
     // for every element in vector x, execute cpu_henon_track in parallel
     std::vector<std::thread> threads;
-#ifdef PYBIND
-    py::print("Starting threads...");
-#endif
+
+    std::cout << "Starting threads..." << std::endl;
+
     std::vector<std::vector<double>> result_vec(x.size());
     for (unsigned int i = 0; i < n_threads_cpu; i++)
     {
@@ -812,9 +804,7 @@ std::vector<std::vector<double>> henon::fft_tunes(unsigned int n_turns, double m
     for (auto &t : threads)
         t.join();
 
-#ifdef PYBIND
-    py::print("Returning results...");
-#endif
+    std::cout << "Returning results..." << std::endl;
 
     global_steps += n_turns;
     return result_vec;
@@ -828,9 +818,8 @@ gpu_henon::gpu_henon(const std::vector<double> &x_init,
               const std::vector<double> &py_init) : 
     henon(x_init, px_init, y_init, py_init)
 {
-#ifdef PYBIND
-    py::print("Initializing GPU henon...");
-#endif
+    std::cout << "Initializing GPU henon..." << std::endl;
+
     // load vectors on gpu
     cudaMalloc(&d_x, x.size() * sizeof(double));
     cudaMalloc(&d_px, px.size() * sizeof(double));
@@ -870,9 +859,8 @@ gpu_henon::gpu_henon(const std::vector<double> &x_init,
     cudaMalloc(&d_rand_states, n_threads * n_blocks * sizeof(curandState));
     setup_random_states<<<n_blocks, n_threads>>>(d_rand_states, clock());
     check_cuda_errors();
-#ifdef PYBIND
-    py::print("Done initializing GPU henon...");
-#endif
+
+    std::cout << "Done initializing GPU henon..." << std::endl;
 }
 
 gpu_henon::~gpu_henon()
@@ -892,9 +880,7 @@ gpu_henon::~gpu_henon()
 
 void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
 {
-#ifdef PYBIND
-    py::print("Computing a modulation...");
-#endif
+    std::cout << "Computing a modulation..." << std::endl;
     // compute a modulation
     tie(omega_x_vec, omega_y_vec) = pick_a_modulation(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset);
 
