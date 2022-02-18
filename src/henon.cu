@@ -921,6 +921,7 @@ void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, doubl
 
     check_cuda_errors();
     allowed_steps = n_turns;
+    std::cout << "Done computing a modulation..." << std::endl;
 }
 
 void gpu_henon::reset()
@@ -1083,6 +1084,7 @@ std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsig
             cudaMemcpy(
                 disp_values[index].data(), d_displacement_at_check, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             index += 1;
+            std::cout << "(" << n_turns[index - 1] << "/" << n_turns.back() << ")" << std::endl;
         }
     }
 
