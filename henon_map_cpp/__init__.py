@@ -99,8 +99,6 @@ class henon_tracker():
 
         data = self.engine.track_realignments(
             list(n_turns), mu, barrier, kick_module, False, low_module, barrier_module)
-        print(len(data))
-        print(type(data))
         displacement, x, px, y, py = data
         return np.asarray(displacement), np.asarray(x), np.asarray(px), np.asarray(y), np.asarray(py), np.asarray(self.engine.get_steps())
 
