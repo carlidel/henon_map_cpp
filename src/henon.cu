@@ -911,6 +911,8 @@ void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, doubl
     // compute a modulation
     tie(omega_x_vec, omega_y_vec) = pick_a_modulation(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset);
 
+    std::cout << "Computing sin/cos..." << std::endl;
+
     // copy to vectors
     omega_x_sin.resize(omega_x_vec.size());
     omega_x_cos.resize(omega_x_vec.size());
@@ -934,6 +936,8 @@ void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, doubl
             },
         k));
     }
+
+    std::cout << "Copying to GPU memory..." << std::endl;
 
     // join threads
     for (auto &t : threads)
