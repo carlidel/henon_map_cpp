@@ -1112,13 +1112,13 @@ std::vector<std::vector<std::vector<double>>> gpu_henon::track_realignments(std:
             cudaMemcpy(
                 disp_values[index].data(), d_displacement_at_check, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             cudaMemcpy(
-                x_values[index].data() + (n_samples / 2), d_x, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+                x_values[index].data(), d_x + (n_samples / 2), (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             cudaMemcpy(
-                px_values[index].data() + (n_samples / 2), d_px, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+                px_values[index].data(), d_px + (n_samples / 2), (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             cudaMemcpy(
-                y_values[index].data() + (n_samples / 2), d_y, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+                y_values[index].data(), d_y + (n_samples / 2), (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             cudaMemcpy(
-                py_values[index].data() + (n_samples / 2), d_py, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+                py_values[index].data(), d_py + (n_samples / 2), (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             index += 1;
             std::cout << "(" << n_turns[index - 1] << "/" << n_turns.back() << ")" << std::endl;
         }
