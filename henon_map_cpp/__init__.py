@@ -97,10 +97,12 @@ class henon_tracker():
         if not np.all(np.diff(n_turns) > 0):
             raise ValueError("n_turns must be sorted in increasing order.")
 
-        displacement = self.engine.track_realignments(
+        data = self.engine.track_realignments(
             list(n_turns), mu, barrier, kick_module, False, low_module, barrier_module)
-
-        return np.asarray(displacement)
+        print(len(data))
+        print(type(data))
+        displacement, x, px, y, py = data
+        return np.asarray(displacement), np.asarray(x), np.asarray(px), np.asarray(y), np.asarray(py), np.asarray(self.engine.get_steps())
 
     def track_tangent_map(self, n_turns, mu, barrier=10.0, kick_module=np.nan):
 
