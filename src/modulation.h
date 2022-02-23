@@ -9,6 +9,7 @@
 #include <mutex>
 #include <random>
 #include <tuple>
+#include <algorithm>
 
 std::vector<double> basic_modulation(const double &tune, const double &omega, const double &epsilon, const int &start, const int &end);
 

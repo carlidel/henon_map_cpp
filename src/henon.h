@@ -26,6 +26,7 @@
 #include <atomic>
 // include std function
 #include <functional>
+#include <algorithm>
 
 #include "modulation.h"
 #include "dynamic_indicator.h"
