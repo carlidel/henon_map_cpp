@@ -1068,11 +1068,16 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
     return megno;
 }
 
-std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
+std::vector<std::vector<std::vector<double>>> gpu_henon::track_realignments(std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
 {
-    // pre allocate megno space and fill it with NaNs
+    // pre allocate realignment space and fill it with NaNs
     std::vector<std::vector<double>> disp_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
-    
+    // same with positions
+    std::vector<std::vector<double>> x_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> px_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> y_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> py_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
+
     std::vector<double> disp_tmp(n_samples / 2);
     unsigned int index = 0;
 
@@ -1106,6 +1111,14 @@ std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsig
             gpu_sum_two_arrays<<<n_blocks, n_threads>>>(d_displacement_at_check, d_displacement_realign, n_samples / 2);
             cudaMemcpy(
                 disp_values[index].data(), d_displacement_at_check, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+            cudaMemcpy(
+                x_values[index].data() + (n_samples / 2), d_x, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+            cudaMemcpy(
+                px_values[index].data() + (n_samples / 2), d_px, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+            cudaMemcpy(
+                y_values[index].data() + (n_samples / 2), d_y, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
+            cudaMemcpy(
+                py_values[index].data() + (n_samples / 2), d_py, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
             index += 1;
             std::cout << "(" << n_turns[index - 1] << "/" << n_turns.back() << ")" << std::endl;
         }
@@ -1121,7 +1134,7 @@ std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsig
     else
         global_steps -= n_turns.back();
 
-    return disp_values;
+    return {disp_values, x_values, px_values, y_values, py_values};
 }
 
 // getters
@@ -1382,11 +1395,16 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
     return megno;
 }
 
-std::vector<std::vector<double>> cpu_henon::track_realignments(
+std::vector<std::vector<std::vector<double>>> cpu_henon::track_realignments(
     std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
 {
     // pre allocate displacement space and fill it with NaNs
     std::vector<std::vector<double>> disp_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
+    // same with positions
+    std::vector<std::vector<double>> x_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> px_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> y_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> py_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
 
     std::vector<double> displacement_realign(x.size() / 2, 0.0);
 
@@ -1460,6 +1478,10 @@ std::vector<std::vector<double>> cpu_henon::track_realignments(
                         if (k + 1 == n_turns[index])
                         {
                             disp_values[index][j] = tmp_displacement + displacement_realign[j];
+                            x_values[index][j] = x[j + x.size() / 2];
+                            px_values[index][j] = px[j + x.size() / 2];
+                            y_values[index][j] = y[j + x.size() / 2];
+                            py_values[index][j] = py[j + x.size() / 2];
                             index += 1;
                         }
                     }
@@ -1478,7 +1500,7 @@ std::vector<std::vector<double>> cpu_henon::track_realignments(
     else
         global_steps -= n_turns.back();
 
-    return disp_values;
+    return {disp_values, x_values, px_values, y_values, py_values};
 }
 
 std::vector<std::vector<double>> henon::track_tangent_map(

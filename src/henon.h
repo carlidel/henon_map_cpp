@@ -83,7 +83,7 @@ public:
         double kick_module = NAN,
         bool inverse = false) = 0;
 
-    virtual std::vector<std::vector<double>> track_realignments(
+    virtual std::vector<std::vector<std::vector<double>>> track_realignments(
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
@@ -199,7 +199,7 @@ public:
         double kick_module = NAN,
         bool inverse = false) override;
 
-    std::vector<std::vector<double>> track_realignments(
+    std::vector<std::vector<std::vector<double>>> track_realignments(
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
@@ -242,7 +242,7 @@ public:
         double kick_module = NAN,
         bool inverse = false) override;
 
-    std::vector<std::vector<double>> track_realignments(
+    std::vector<std::vector<std::vector<double>>> track_realignments(
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,

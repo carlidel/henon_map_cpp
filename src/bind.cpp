@@ -1,3 +1,5 @@
+#include <vector>
+#include <array>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
@@ -81,14 +83,14 @@ public:
             n_turns, mu, barrier, kick_module, inverse);
     }
 
-    std::vector<std::vector<double>> track_realignments(
+    std::vector<std::vector<std::vector<double>>> track_realignments(
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
         bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
     {
         PYBIND11_OVERRIDE_PURE(
-            std::vector<std::vector<double>>,
+            std::vector<std::vector<std::vector<double>>>,
             henon,
             track_realignments,
             n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
@@ -149,14 +151,14 @@ public:
             n_turns, mu, barrier, kick_module, inverse);
     }
 
-    std::vector<std::vector<double>> track_realignments(
+    std::vector<std::vector<std::vector<double>>> track_realignments(
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
         bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
     {
         PYBIND11_OVERRIDE(
-            std::vector<std::vector<double>>,
+            std::vector<std::vector<std::vector<double>>>,
             cpu_henon,
             track_realignments,
             n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
@@ -217,14 +219,14 @@ public:
             n_turns, mu, barrier, kick_module, inverse);
     }
 
-    std::vector<std::vector<double>> track_realignments(
+    std::vector<std::vector<std::vector<double>>> track_realignments(
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
         bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
     {
         PYBIND11_OVERRIDE(
-            std::vector<std::vector<double>>,
+            std::vector<std::vector<std::vector<double>>>,
             gpu_henon,
             track_realignments,
             n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
