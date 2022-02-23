@@ -4,6 +4,16 @@
     namespace py = pybind11;
 #endif
 
+void check_keyboard_interrupt(){
+#ifdef PYBIND
+    if (PyErr_CheckSignals() != 0)
+    {
+        std::cout << "Keyboard interrupt" << std::endl;
+        throw py::error_already_set();
+    }
+#endif
+}
+
 void check_cuda_errors() {
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -11,7 +21,9 @@ void check_cuda_errors() {
         std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
         exit(1);
     }
+    check_keyboard_interrupt();
 }
+
 
 __host__ __device__ bool check_barrier(const double &x, const double &px, const double &y, const double &py, const double &barrier_pow_2)
 {
@@ -959,12 +971,17 @@ void gpu_henon::track(unsigned int n_turns, double mu, double barrier, double ki
             throw std::runtime_error("The number of turns is too large.");
     }
     
-    gpu_henon_track<<<n_blocks, n_threads>>>(
-        d_x, d_px, d_y, d_py, d_steps,
-        n_samples, n_turns, barrier * barrier, mu,
-        d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
-        kick_module, d_rand_states, inverse);
-    
+    for (unsigned int j = 0; j < n_turns; j++)
+    {
+        gpu_henon_track<<<n_blocks, n_threads>>>(
+            d_x, d_px, d_y, d_py, d_steps,
+            n_samples, 1, barrier * barrier, mu,
+            d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
+            kick_module, d_rand_states, inverse);
+        
+        if (j % 1000 == 0)
+            check_cuda_errors();
+    }   
     // Update the counter
     if (!inverse)
         global_steps += n_turns;
@@ -1013,11 +1030,14 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
                 d_displacement_1, d_displacement_2,
                 d_ratio_sum, j + 1, n_samples / 2
             );
-            else
+        else
             gpu_add_to_ratio<<<n_blocks, n_threads>>>(
                 d_displacement_2, d_displacement_1,
                 d_ratio_sum, j + 1, n_samples / 2
             );
+            
+        if (j % 1000 == 0)
+            check_cuda_errors();
 
         // if j is in the n_turns vector, then we need to compute megno
         if (j + 1 == n_turns[index])
@@ -1076,6 +1096,9 @@ std::vector<std::vector<double>> gpu_henon::track_realignments(std::vector<unsig
             kick_module, d_rand_states, inverse);
 
         gpu_compute_displacements_and_realign<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_realign, n_samples / 2, low_module, barrier_module);
+
+        if (j % 1000 == 0)
+            check_cuda_errors();
 
         if (j + 1 == n_turns[index])
         {
@@ -1323,12 +1346,15 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
                                 y[j + x.size() / 2], py[j + x.size() / 2]);
                         }
 
-                            if (k % 2 == 0)
-                            {
+                        if (k % 1000 == 0)
+                            check_keyboard_interrupt();
+
+                        if (k % 2 == 0)
+                        {
                             ratio_sum[j] += k * log10(displacement_1[j] / displacement_2[j]);
-                            }
-                            else
-                            {
+                        }
+                        else
+                        {
                             ratio_sum[j] += k * log10(displacement_2[j] / displacement_1[j]);
                         }
 
@@ -1427,6 +1453,9 @@ std::vector<std::vector<double>> cpu_henon::track_realignments(
                             );
                             tmp_displacement = low_module;
                         }
+
+                        if (k % 1000 == 0)
+                            check_keyboard_interrupt();
 
                         if (k + 1 == n_turns[index])
                         {
@@ -1539,6 +1568,9 @@ std::vector<std::vector<double>> henon::track_tangent_map(
                                 tangent_map[idx1][idx2] = matrix_mult_temp[idx1][idx2];
                             }
                         }
+
+                        if (k % 1000 == 0)
+                            check_keyboard_interrupt();
 
                         if (k + 1 == n_turns[index])
                         {
