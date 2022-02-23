@@ -503,7 +503,7 @@ void henon::compute_a_modulation(unsigned int n_turns, double omega_x, double om
         threads.push_back(std::thread(
             [&](const unsigned int n_th)
             {
-                for (size_t i = n_th; i < omega_x_vec.size(); i+=n_th)
+                for (size_t i = n_th; i < omega_x_vec.size(); i += n_threads_cpu)
                 {
                     omega_x_sin[i] = sin(omega_x_vec[i]);
                     omega_x_cos[i] = cos(omega_x_vec[i]);
@@ -511,7 +511,7 @@ void henon::compute_a_modulation(unsigned int n_turns, double omega_x, double om
                     omega_y_cos[i] = cos(omega_y_vec[i]);
                 }
             },
-        k));
+            k));
     }
 
     // join threads
@@ -926,7 +926,7 @@ void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, doubl
         threads.push_back(std::thread(
             [&](const unsigned int n_th)
             {
-                for (size_t i = n_th; i < omega_x_vec.size(); i+=n_th)
+                for (size_t i = n_th; i < omega_x_vec.size(); i += n_threads_cpu)
                 {
                     omega_x_sin[i] = sin(omega_x_vec[i]);
                     omega_x_cos[i] = cos(omega_x_vec[i]);
@@ -934,16 +934,16 @@ void gpu_henon::compute_a_modulation(unsigned int n_turns, double omega_x, doubl
                     omega_y_cos[i] = cos(omega_y_vec[i]);
                 }
             },
-        k));
+            k));
     }
-
-    std::cout << "Copying to GPU memory..." << std::endl;
 
     // join threads
     for (auto &t : threads)
     {
         t.join();
     }
+
+    std::cout << "Copying to GPU memory..." << std::endl;
     // free old modulations
     cudaFree(d_omega_x_sin);
     cudaFree(d_omega_x_cos);
