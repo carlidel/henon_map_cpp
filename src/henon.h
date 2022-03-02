@@ -88,7 +88,7 @@ public:
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) = 0;
+        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) = 0;
 
     std::array<std::vector<std::vector<double>>, 4> full_track(unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN);
 
@@ -204,7 +204,7 @@ public:
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override;
+        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override;
 
     // getters
     virtual std::vector<double> get_x() const override;
@@ -247,7 +247,7 @@ public:
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override;
+        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override;
 };
 
 #endif // HENON_CU_

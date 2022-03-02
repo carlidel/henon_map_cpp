@@ -334,7 +334,7 @@ __device__ void henon_step(
 
 __global__ void gpu_compute_displacements(
     double *x1, double *px1, double *y1, double *py1,
-    double *out, const size_t size)
+    double *out, const size_t size, const double low_value=1, const bool log_me=false)
 {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= size)
@@ -353,12 +353,19 @@ __global__ void gpu_compute_displacements(
     double y2 = y1[i + size];
     double py2 = py1[i + size];
 
-    out[i] = displacement(x1[i], px1[i], y1[i], py1[i], x2, px2, y2, py2);
+    if (log_me)
+    {
+        out[i] = log(displacement(x1[i], px1[i], y1[i], py1[i], x2, px2, y2, py2) / low_value);
+    }
+    else
+    {
+        out[i] = displacement(x1[i], px1[i], y1[i], py1[i], x2, px2, y2, py2);
+    }
 }
 
 __global__ void gpu_compute_displacements_and_realign(
     double *x1, double *px1, double *y1, double *py1,
-    double *out, const size_t size, const double low_module, const double limit_module)
+    double *out, const size_t size, const double low_module)
 {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= size)
@@ -373,13 +380,11 @@ __global__ void gpu_compute_displacements_and_realign(
     }
     
     double tmp_displacement = displacement(x1[i], px1[i], y1[i], py1[i], x1[i + size], px1[i + size], y1[i + size], py1[i + size]);
-    if (tmp_displacement > limit_module)
-    {
-        out[i] += tmp_displacement - low_module;
-        realign(
-            x1[i + size], px1[i + size], y1[i + size], py1[i + size],
-            x1[i], px1[i], y1[i], py1[i], tmp_displacement, low_module);
-    }
+    out[i] += log(tmp_displacement/low_module);
+    realign(
+        x1[i + size], px1[i + size], y1[i + size], py1[i + size],
+        x1[i], px1[i], y1[i], py1[i], tmp_displacement, low_module);
+
 }
 
 __global__ void gpu_add_to_ratio(
@@ -1102,7 +1107,7 @@ std::vector<std::vector<double>> gpu_henon::track_MEGNO(std::vector<unsigned int
     return megno;
 }
 
-std::vector<std::vector<std::vector<double>>> gpu_henon::track_realignments(std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
+std::vector<std::vector<std::vector<double>>> gpu_henon::track_realignments(std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, unsigned int t_norm)
 {
     // pre allocate realignment space and fill it with NaNs
     std::vector<std::vector<double>> disp_values(n_turns.size(), std::vector<double>(n_samples / 2, std::numeric_limits<double>::quiet_NaN()));
@@ -1134,14 +1139,17 @@ std::vector<std::vector<std::vector<double>>> gpu_henon::track_realignments(std:
             d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos,
             kick_module, d_rand_states, inverse);
 
-        gpu_compute_displacements_and_realign<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_realign, n_samples / 2, low_module, barrier_module);
+        if (j % t_norm == 0) 
+        {
+            gpu_compute_displacements_and_realign<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_realign, n_samples / 2, low_module);
+        }
 
         if (j % 1000 == 0)
             check_cuda_errors();
 
         if (j + 1 == n_turns[index])
         {
-            gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_at_check, n_samples / 2);
+            gpu_compute_displacements<<<n_blocks, n_threads>>>(d_x, d_px, d_y, d_py, d_displacement_at_check, n_samples / 2, low_module, true);
             gpu_sum_two_arrays<<<n_blocks, n_threads>>>(d_displacement_at_check, d_displacement_realign, n_samples / 2);
             cudaMemcpy(
                 disp_values[index].data(), d_displacement_at_check, (n_samples / 2) * sizeof(double), cudaMemcpyDeviceToHost);
@@ -1430,7 +1438,7 @@ std::vector<std::vector<double>> cpu_henon::track_MEGNO(
 }
 
 std::vector<std::vector<std::vector<double>>> cpu_henon::track_realignments(
-    std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, double barrier_module)
+    std::vector<unsigned int> n_turns, double mu, double barrier, double kick_module, bool inverse, double low_module, unsigned int t_norm)
 {
     // pre allocate displacement space and fill it with NaNs
     std::vector<std::vector<double>> disp_values(n_turns.size(), std::vector<double>(x.size() / 2, std::numeric_limits<double>::quiet_NaN()));
@@ -1494,7 +1502,7 @@ std::vector<std::vector<std::vector<double>>> cpu_henon::track_realignments(
                             x[j + x.size() / 2], px[j + x.size() / 2],
                             y[j + x.size() / 2], py[j + x.size() / 2]);
                         
-                        if (tmp_displacement > barrier_module)
+                        if (k % t_norm == 0 && tmp_displacement > low_module)
                         {
                             displacement_realign[j] += tmp_displacement - low_module;
                             realign(

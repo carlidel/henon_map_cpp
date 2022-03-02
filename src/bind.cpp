@@ -87,13 +87,13 @@ public:
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
+        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override
     {
         PYBIND11_OVERRIDE_PURE(
             std::vector<std::vector<std::vector<double>>>,
             henon,
             track_realignments,
-            n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
+            n_turns, mu, barrier, kick_module, inverse, low_module, t_norm);
     }
 
     std::vector<double> get_x() const override { PYBIND11_OVERRIDE(std::vector<double>, henon, get_x); }
@@ -155,13 +155,13 @@ public:
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
+        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override
     {
         PYBIND11_OVERRIDE(
             std::vector<std::vector<std::vector<double>>>,
             cpu_henon,
             track_realignments,
-            n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
+            n_turns, mu, barrier, kick_module, inverse, low_module, t_norm);
     }
 
     std::vector<double> get_x() const override { PYBIND11_OVERRIDE(std::vector<double>, cpu_henon, get_x); }
@@ -223,13 +223,13 @@ public:
         std::vector<unsigned int> n_turns, double mu,
         double barrier = 100.0,
         double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, double barrier_module = 1e-8) override
+        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override
     {
         PYBIND11_OVERRIDE(
             std::vector<std::vector<std::vector<double>>>,
             gpu_henon,
             track_realignments,
-            n_turns, mu, barrier, kick_module, inverse, low_module, barrier_module);
+            n_turns, mu, barrier, kick_module, inverse, low_module, t_norm);
     }
 
     std::vector<double> get_x() const override { PYBIND11_OVERRIDE(std::vector<double>, gpu_henon, get_x); }
@@ -296,7 +296,7 @@ PYBIND11_MODULE(henon_map_engine, m)
              py::arg("kick_module") = NAN,
              py::arg("inverse") = false,
              py::arg("low_module") = 1e-14,
-             py::arg("barrier_module") = 1e-8)
+             py::arg("t_norm") = 1000)
 
         .def("track_tangent_map", &cpu_henon::track_tangent_map,
              "Tracks the particles with tangent map",
