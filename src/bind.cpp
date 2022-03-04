@@ -179,6 +179,8 @@ PYBIND11_MODULE(henon_map_engine, m)
     m.def("uniform_modulation", &uniform_modulation, "Uniform modulation",
           py::arg("from"), py::arg("to"), py::arg("start"), py::arg("end"));
 
+    m.def("birkhoff_weights", &birkhoff_weights, "Birkhoff weights", py::arg("n_weights"));
+
     m.def("get_tunes", &get_tunes, "Get tunes",
           py::arg("x"), py::arg("px"));
 

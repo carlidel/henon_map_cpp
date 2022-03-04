@@ -4,9 +4,12 @@ import pandas as pd
 
 #from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
 
-from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d, is_cuda_device_available
+from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d, is_cuda_device_available, birkhoff_weights
 from .henon_map_engine import henon_tracker as cpp_henon_tracker
 from .henon_map_engine import henon_tracker_gpu as cpp_henon_tracker_gpu
+
+def birkhoff_weights(n):
+    return np.asarray(birkhoff_weights(n))
 
 class particles():
     def __init__(self, x_0, px_0, y_0, py_0, force_CPU=False):
