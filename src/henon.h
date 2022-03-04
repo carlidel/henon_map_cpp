@@ -19,6 +19,7 @@
 #include <chrono>
 #include <string>
 #include <limits>
+#include <cstdint>
 // include standard thread library
 #include <thread>
 #include <mutex>
@@ -35,9 +36,109 @@
 #define NT 256
 #endif // NT
 
-class henon
+
+struct particles_4d
+{
+    std::vector<double> x;
+    std::vector<double> px;
+    std::vector<double> y;
+    std::vector<double> py;
+
+    std::vector<double> x0;
+    std::vector<double> px0;
+    std::vector<double> y0;
+    std::vector<double> py0;
+
+    std::vector<unsigned int> steps;
+    std::vector<uint8_t> valid;
+    std::vector<uint8_t> ghost;
+
+    size_t n_particles;
+    size_t n_ghosts_per_particle;
+
+    std::vector<size_t> idx;
+    std::vector<size_t> idx_base;
+
+    std::mt19937_64 rng;
+    unsigned int global_steps;
+
+    particles_4d() = default;
+
+    particles_4d(
+        const std::vector<double> &x_,
+        const std::vector<double> &px_,
+        const std::vector<double> &y_,
+        const std::vector<double> &py_
+    );
+
+    virtual void reset();
+    virtual void add_ghost(const double &displacement_module, const std::string &direction);
+
+    virtual void renormalize(const double &module_target);
+
+    virtual const std::vector<std::vector<double>> get_displacement_module() const;
+    virtual const std::vector<std::vector<std::vector<double>>> get_displacement_direction() const;
+
+    virtual const std::vector<double> get_x() const;
+    virtual const std::vector<double> get_px() const;
+    virtual const std::vector<double> get_y() const;
+    virtual const std::vector<double> get_py() const;
+    virtual const std::vector<unsigned int> get_steps() const;
+};
+
+
+struct particles_4d_gpu : public particles_4d
+{
+    double *d_x;
+    double *d_px;
+    double *d_y;
+    double *d_py;
+
+    unsigned int *d_steps;
+    uint8_t *d_valid;
+    uint8_t *d_ghost;
+
+    size_t *d_idx;
+    size_t *d_idx_base;
+
+    curandState *d_rng_state;
+
+    void _general_host_to_device_copy();
+    void _general_device_to_host_copy();
+
+    particles_4d_gpu() = default;
+
+    particles_4d_gpu(
+        const std::vector<double> &x_,
+        const std::vector<double> &px_,
+        const std::vector<double> &y_,
+        const std::vector<double> &py_
+    );
+
+    virtual void reset();
+    virtual void add_ghost(const double &displacement_module, const std::string &direction);
+
+    virtual void renormalize(const double &module_target);
+
+    virtual const std::vector<std::vector<double>> get_displacement_module() const;
+    virtual const std::vector<std::vector<std::vector<double>>> get_displacement_direction() const;
+
+    virtual const std::vector<double> get_x() const;
+    virtual const std::vector<double> get_px() const;
+    virtual const std::vector<double> get_y() const;
+    virtual const std::vector<double> get_py() const;
+    virtual const std::vector<unsigned int> get_steps() const;
+
+    virtual ~particles_4d_gpu();
+    size_t _optimal_nblocks() const;
+};
+
+
+class henon_tracker
 {
 protected:
+    size_t allowed_steps;
+
     std::vector<double> omega_x_vec;
     std::vector<double> omega_y_vec;
 
@@ -46,208 +147,54 @@ protected:
     std::vector<double> omega_y_sin;
     std::vector<double> omega_y_cos;
 
-    std::vector<double> x;
-    std::vector<double> y;
-    std::vector<double> px;
-    std::vector<double> py;
-
-    std::vector<double> x_0;
-    std::vector<double> y_0;
-    std::vector<double> px_0;
-    std::vector<double> py_0;
-
-    std::vector<unsigned int> steps;
-    unsigned int global_steps;
-    unsigned int allowed_steps;
-
-    size_t n_threads_cpu;
-    
-    std::normal_distribution<double> distribution;
-
 public:
-    // default constructor
-    henon() = default;
-
-    henon(const std::vector<double> &x_init,
-          const std::vector<double> &px_init,
-          const std::vector<double> &y_init,
-          const std::vector<double> &py_init);
+    henon_tracker() = default;
+    henon_tracker(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
 
     virtual void compute_a_modulation(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
 
-    virtual void reset();
-    virtual void track(unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false) = 0;
-
-    virtual std::vector<std::vector<double>> track_MEGNO(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false) = 0;
-
-    virtual std::vector<std::vector<std::vector<double>>> track_realignments(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) = 0;
-
-    std::array<std::vector<std::vector<double>>, 4> full_track(unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN);
-
-    std::vector<std::vector<double>> full_track_and_fft(
-        unsigned int n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        std::vector<unsigned int> from = std::vector<unsigned int>(),
-        std::vector<unsigned int> to = std::vector<unsigned int>());
-
-    std::vector<std::vector<double>> full_track_and_birkhoff(
-        unsigned int n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN, 
-        std::vector<unsigned int> from = std::vector<unsigned int>(),
-        std::vector<unsigned int> to = std::vector<unsigned int>());
-
-    std::vector<std::vector<double>> full_track_and_lambda(
-        unsigned int n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        std::function<std::vector<double>(
-            std::vector<double>, std::vector<double>, 
-            std::vector<double>, std::vector<double>)> lambda = [](
-                std::vector<double> x, std::vector<double> px, 
-                std::vector<double> y, std::vector<double> py)
-                {return std::vector<double>{0.0};});
-
-    std::vector<std::vector<double>> birkhoff_tunes(
-        unsigned int n_turns, double mu, 
-        double barrier = 100.0, 
-        double kick_module = NAN,
-        std::vector<unsigned int> from = std::vector<unsigned int>(), std::vector<unsigned int> to = std::vector<unsigned int>());
-
-    std::vector<std::vector<double>> fft_tunes(
-        unsigned int n_turns, double mu, 
-        double barrier = 100.0, 
-        double kick_module = NAN, 
-        std::vector<unsigned int> from = std::vector<unsigned int>(), std::vector<unsigned int> to = std::vector<unsigned int>());
-
-    std::vector<std::vector<double>> track_tangent_map(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false);
-
-    // getters
-    virtual std::vector<double> get_x() const;
-    virtual std::vector<double> get_px() const;
-    virtual std::vector<double> get_y() const;
-    virtual std::vector<double> get_py() const;
-
-    std::vector<double> get_x0() const;
-    std::vector<double> get_px0() const;
-    std::vector<double> get_y0() const;
-    std::vector<double> get_py0() const;
-
-    virtual std::vector<unsigned int> get_steps() const;
-    unsigned int get_global_steps() const;
-
-    // setters
-    virtual void set_x(std::vector<double> x);
-    virtual void set_px(std::vector<double> px);
-    virtual void set_y(std::vector<double> y);
-    virtual void set_py(std::vector<double> py);
-    virtual void set_steps(std::vector<unsigned int> steps);
-    virtual void set_steps(unsigned int unique_step);
-    void set_global_steps(unsigned int global_steps);
+    void track(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
 };
 
-class gpu_henon : public henon
+class henon_tracker_gpu : public henon_tracker
 {
-    double *d_x;
-    double *d_px;
-    double *d_y;
-    double *d_py;
-    unsigned int *d_steps;
-
+protected:
     double *d_omega_x_sin;
     double *d_omega_x_cos;
     double *d_omega_y_sin;
     double *d_omega_y_cos;
 
     curandState *d_rand_states;
-
-    size_t n_samples;
-    size_t n_threads;
-    size_t n_blocks;
-
 public:
-    gpu_henon(const std::vector<double> &x_init,
-              const std::vector<double> &px_init,
-              const std::vector<double> &y_init,
-              const std::vector<double> &py_init);
-    ~gpu_henon();
+    henon_tracker_gpu() = default;
+    henon_tracker_gpu(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
+    ~henon_tracker_gpu();
 
-    void compute_a_modulation(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0) override;
+    virtual void compute_a_modulation(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
 
-    void reset() override;
-    void track(
-        unsigned int n_turns, double mu, 
-        double barrier = 100.0, 
-        double kick_module = NAN, 
-        bool inverse = false) override;
-
-    std::vector<std::vector<double>> track_MEGNO(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false) override;
-
-    std::vector<std::vector<std::vector<double>>> track_realignments(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override;
-
-    // getters
-    virtual std::vector<double> get_x() const override;
-    virtual std::vector<double> get_px() const override;
-    virtual std::vector<double> get_y() const override;
-    virtual std::vector<double> get_py() const override;
-    virtual std::vector<unsigned int> get_steps() const override;
-
-    // Setters
-    void set_x(std::vector<double> x) override;
-    void set_px(std::vector<double> px) override;
-    void set_y(std::vector<double> y) override;
-    void set_py(std::vector<double> py) override;
-    void set_steps(std::vector<unsigned int> steps) override;
-    void set_steps(unsigned int unique_step) override;
+    void track(particles_4d_gpu &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
 };
 
-class cpu_henon : public henon
+
+struct storage_4d
 {
-public:
-    cpu_henon(const std::vector<double> &x_init,
-              const std::vector<double> &px_init,
-              const std::vector<double> &y_init,
-              const std::vector<double> &py_init);
-    ~cpu_henon();
+    std::vector<std::vector<double>> x;
+    std::vector<std::vector<double>> px;
+    std::vector<std::vector<double>> y;
+    std::vector<std::vector<double>> py;
 
-    void track(
-        unsigned int n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false) override;
+    storage_4d(size_t N);
 
-    std::vector<std::vector<double>> track_MEGNO(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false) override;
+    void store(const particles_4d &particles);
+    void store(const particles_4d_gpu &particles);
 
-    std::vector<std::vector<std::vector<double>>> track_realignments(
-        std::vector<unsigned int> n_turns, double mu,
-        double barrier = 100.0,
-        double kick_module = NAN,
-        bool inverse = false, double low_module = 1e-14, unsigned int t_norm = 1000) override;
+    std::vector<std::vector<double>> tune_fft(std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx) const;
+    std::vector<std::vector<double>> tune_birkhoff(std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx) const;
+
+    const std::vector<std::vector<double>> &get_x() const;
+    const std::vector<std::vector<double>> &get_px() const;
+    const std::vector<std::vector<double>> &get_y() const;
+    const std::vector<std::vector<double>> &get_py() const;
 };
 
 #endif // HENON_CU_
