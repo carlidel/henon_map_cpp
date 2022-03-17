@@ -84,6 +84,15 @@ struct particles_4d
     virtual const std::vector<double> get_y() const;
     virtual const std::vector<double> get_py() const;
     virtual const std::vector<unsigned int> get_steps() const;
+
+    virtual const std::vector<uint8_t> get_valid() const;
+    virtual const std::vector<uint8_t> get_ghost() const;
+
+    virtual const std::vector<size_t> get_idx() const;
+    virtual const std::vector<size_t> get_idx_base() const;
+
+    virtual const size_t &get_n_particles() const;
+    virtual const size_t &get_n_ghosts_per_particle() const;
 };
 
 
@@ -103,9 +112,11 @@ struct particles_4d_gpu : public particles_4d
 
     curandState *d_rng_state;
 
+    void _general_cudaMalloc();
+    void _general_cudaFree();
     void _general_host_to_device_copy();
     void _general_device_to_host_copy();
-
+    
     particles_4d_gpu() = default;
 
     particles_4d_gpu(
@@ -128,6 +139,15 @@ struct particles_4d_gpu : public particles_4d
     virtual const std::vector<double> get_y() const;
     virtual const std::vector<double> get_py() const;
     virtual const std::vector<unsigned int> get_steps() const;
+
+    virtual const std::vector<uint8_t> get_valid() const;
+    virtual const std::vector<uint8_t> get_ghost() const;
+
+    virtual const std::vector<size_t> get_idx() const;
+    virtual const std::vector<size_t> get_idx_base() const;
+
+    virtual const size_t &get_n_particles() const;
+    virtual const size_t &get_n_ghosts_per_particle() const;
 
     virtual ~particles_4d_gpu();
     size_t _optimal_nblocks() const;
@@ -154,6 +174,8 @@ public:
     virtual void compute_a_modulation(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
 
     void track(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
+
+    std::vector<std::vector<double>> birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
 };
 
 class henon_tracker_gpu : public henon_tracker

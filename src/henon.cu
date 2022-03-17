@@ -757,6 +757,74 @@ const std::vector<unsigned int> particles_4d::get_steps() const
     return steps;
 }
 
+const std::vector<uint8_t> particles_4d::get_valid() const
+{
+    return valid;
+}
+
+const std::vector<uint8_t> particles_4d::get_ghost() const
+{
+    return ghost;
+}
+
+const std::vector<size_t> particles_4d::get_idx() const
+{
+    return idx;
+}
+
+const std::vector<size_t> particles_4d::get_idx_base() const
+{
+    return idx_base;
+}
+
+const size_t &particles_4d::get_n_particles() const
+{
+    return n_particles;
+}
+
+const size_t &particles_4d::get_n_ghosts_per_particle() const
+{
+    return n_ghosts_per_particle;
+}
+
+
+void particles_4d_gpu::_general_cudaMalloc()
+{
+    // allocate cuda memory
+    cudaMalloc(&d_x, x.size() * sizeof(double));
+    cudaMalloc(&d_px, px.size() * sizeof(double));
+    cudaMalloc(&d_y, y.size() * sizeof(double));
+    cudaMalloc(&d_py, py.size() * sizeof(double));
+
+    cudaMalloc(&d_steps, steps.size() * sizeof(unsigned int));
+    cudaMalloc(&d_valid, valid.size() * sizeof(bool));
+    cudaMalloc(&d_ghost, ghost.size() * sizeof(bool));
+
+    cudaMalloc(&d_idx, idx.size() * sizeof(size_t));
+    cudaMalloc(&d_idx_base, idx_base.size() * sizeof(size_t));
+
+    cudaMalloc(&d_rng_state, 512 * _optimal_nblocks() * sizeof(curandState));
+    setup_random_states<<<_optimal_nblocks(), 512>>>(d_rng_state, clock());
+}
+
+void particles_4d_gpu::_general_cudaFree()
+{
+    // free cuda memory
+    cudaFree(d_x);
+    cudaFree(d_px);
+    cudaFree(d_y);
+    cudaFree(d_py);
+
+    cudaFree(d_steps);
+    cudaFree(d_valid);
+    cudaFree(d_ghost);
+
+    cudaFree(d_idx);
+    cudaFree(d_idx_base);
+
+    cudaFree(d_rng_state);
+}
+
 void particles_4d_gpu::_general_host_to_device_copy()
 {
     cudaMemcpy(d_x, x.data(), x.size() * sizeof(double), cudaMemcpyHostToDevice);
@@ -768,21 +836,8 @@ void particles_4d_gpu::_general_host_to_device_copy()
     cudaMemcpy(d_valid, valid.data(), valid.size() * sizeof(uint8_t), cudaMemcpyHostToDevice);
     cudaMemcpy(d_ghost, ghost.data(), ghost.size() * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-    cudaMemcpy(d_idx, idx.data(), idx.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_idx_base, idx_base.data(), idx_base.size() * sizeof(unsigned int), cudaMemcpyHostToDevice);
-
-    // check if d_rng_state is nullptr, if so, allocate memory
-    if (d_rng_state == nullptr)
-    {
-        cudaMalloc(&d_rng_state, 512 * _optimal_nblocks() * sizeof(curandState));
-    } // else, resize d_rng_state
-    else
-    {
-        cudaFree(d_rng_state);
-        cudaMalloc(&d_rng_state, 512 * _optimal_nblocks() * sizeof(curandState));
-    }
-
-    setup_random_states<<<_optimal_nblocks(), 512>>>(d_rng_state, clock());
+    cudaMemcpy(d_idx, idx.data(), idx.size() * sizeof(size_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_idx_base, idx_base.data(), idx_base.size() * sizeof(size_t), cudaMemcpyHostToDevice);
 }
 
 void particles_4d_gpu::_general_device_to_host_copy()
@@ -796,8 +851,8 @@ void particles_4d_gpu::_general_device_to_host_copy()
     cudaMemcpy(valid.data(), d_valid, valid.size() * sizeof(uint8_t), cudaMemcpyDeviceToHost);
     cudaMemcpy(ghost.data(), d_ghost, ghost.size() * sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(idx.data(), d_idx, idx.size() * sizeof(unsigned int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(idx_base.data(), d_idx_base, idx_base.size() * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(idx.data(), d_idx, idx.size() * sizeof(size_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(idx_base.data(), d_idx_base, idx_base.size() * sizeof(size_t), cudaMemcpyDeviceToHost);
 }
 
 size_t particles_4d_gpu::_optimal_nblocks() const
@@ -813,23 +868,7 @@ particles_4d_gpu::particles_4d_gpu(
     const std::vector<double> &py_)
     : particles_4d(x_, px_, y_, py_)
 {
-    // allocate cuda memory
-    cudaMalloc(&d_x, x.size() * sizeof(double));
-    cudaMalloc(&d_px, px.size() * sizeof(double));
-    cudaMalloc(&d_y, y.size() * sizeof(double));
-    cudaMalloc(&d_py, py.size() * sizeof(double));
-    
-    cudaMalloc(&d_steps, steps.size() * sizeof(unsigned int));
-    cudaMalloc(&d_valid, valid.size() * sizeof(bool));
-    cudaMalloc(&d_ghost, ghost.size() * sizeof(bool));
-    
-    cudaMalloc(&d_idx, idx.size() * sizeof(unsigned int));
-    cudaMalloc(&d_idx_base, idx_base.size() * sizeof(unsigned int));
-
-    // set d_rng_state to nullptr
-    d_rng_state = nullptr;
-
-    // copy data to device
+    _general_cudaMalloc();
     _general_host_to_device_copy();
     
 }
@@ -847,6 +886,8 @@ void particles_4d_gpu::add_ghost(const double &displacement_module, const std::s
     this->particles_4d::add_ghost(displacement_module, direction);
 
     // copy data to device
+    _general_cudaFree();
+    _general_cudaMalloc();
     _general_host_to_device_copy();
 }
 
@@ -910,7 +951,7 @@ __global__ void gpu_particle_displacements(
 
 const std::vector<std::vector<double>> particles_4d_gpu::get_displacement_module() const
 {
-    std::vector<std::vector<double>> val_displacement(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> val_displacement(n_ghosts_per_particle, std::vector<double>(n_particles, std::numeric_limits<double>::quiet_NaN()));
 
     double *d_out;
     cudaMalloc(&d_out, n_particles * n_ghosts_per_particle * sizeof(double));
@@ -924,8 +965,18 @@ const std::vector<std::vector<double>> particles_4d_gpu::get_displacement_module
         cudaMemcpy(val_displacement[i].data(), d_out + i * n_particles, n_particles * sizeof(double), cudaMemcpyDeviceToHost);
     }
 
+    std::vector<std::vector<double>> val_displacement_transposed(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN()));
+
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        for (size_t j = 0; j < n_ghosts_per_particle; j++)
+        {
+            val_displacement_transposed[i][j] = val_displacement[j][i];
+        }
+    }
+
     cudaFree(d_out);
-    return val_displacement;
+    return val_displacement_transposed;
 }
 
 __global__ void gpu_particle_directions(
@@ -974,10 +1025,10 @@ __global__ void gpu_particle_directions(
 const std::vector<std::vector<std::vector<double>>> particles_4d_gpu::get_displacement_direction() const
 {
     std::vector<std::vector<std::vector<double>>> dir_displacement(
-        {{std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN())),
-          std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN())),
-          std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN())),
-          std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN()))}});
+        {{std::vector<std::vector<double>>(n_ghosts_per_particle, std::vector<double>(n_particles, std::numeric_limits<double>::quiet_NaN())),
+          std::vector<std::vector<double>>(n_ghosts_per_particle, std::vector<double>(n_particles, std::numeric_limits<double>::quiet_NaN())),
+          std::vector<std::vector<double>>(n_ghosts_per_particle, std::vector<double>(n_particles, std::numeric_limits<double>::quiet_NaN())),
+          std::vector<std::vector<double>>(n_ghosts_per_particle, std::vector<double>(n_particles, std::numeric_limits<double>::quiet_NaN()))}});
 
     double *d_out_x, *d_out_px, *d_out_y, *d_out_py;
     cudaMalloc(&d_out_x, n_particles * n_ghosts_per_particle * sizeof(double));
@@ -1002,7 +1053,24 @@ const std::vector<std::vector<std::vector<double>>> particles_4d_gpu::get_displa
     cudaFree(d_out_y);
     cudaFree(d_out_py);
 
-    return dir_displacement;
+    std::vector<std::vector<std::vector<double>>> dir_displacement_transposed(
+        {{std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN())),
+          std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN())),
+          std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN())),
+          std::vector<std::vector<double>>(n_particles, std::vector<double>(n_ghosts_per_particle, std::numeric_limits<double>::quiet_NaN()))}});
+    
+    for (size_t i = 0; i < n_ghosts_per_particle; i++)
+    {
+        for (size_t j = 0; j < n_particles; j++)
+        {
+            dir_displacement_transposed[0][j][i] = dir_displacement[0][i][j];
+            dir_displacement_transposed[1][j][i] = dir_displacement[1][i][j];
+            dir_displacement_transposed[2][j][i] = dir_displacement[2][i][j];
+            dir_displacement_transposed[3][j][i] = dir_displacement[3][i][j];
+        }
+    }
+
+    return dir_displacement_transposed;
 }
 
 const std::vector<double> particles_4d_gpu::get_x() const
@@ -1045,21 +1113,51 @@ const std::vector<unsigned int> particles_4d_gpu::get_steps() const
     return steps_copy;
 }
 
+const std::vector<uint8_t> particles_4d_gpu::get_valid() const
+{
+    std::vector<uint8_t> valid_copy(valid.size());
+    // copy data to host
+    cudaMemcpy(valid_copy.data(), d_valid, valid.size() * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+    return valid_copy;
+}
+
+const std::vector<uint8_t> particles_4d_gpu::get_ghost() const
+{
+    std::vector<uint8_t> ghost_copy(ghost.size());
+    // copy data to host
+    cudaMemcpy(ghost_copy.data(), d_ghost, ghost.size() * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+    return ghost_copy;
+}
+
+const std::vector<size_t> particles_4d_gpu::get_idx() const
+{
+    std::vector<size_t> idx_copy(idx.size());
+    // copy data to host
+    cudaMemcpy(idx_copy.data(), d_idx, idx.size() * sizeof(size_t), cudaMemcpyDeviceToHost);
+    return idx_copy;
+}
+
+const std::vector<size_t> particles_4d_gpu::get_idx_base() const
+{
+    std::vector<size_t> idx_base_copy(idx_base.size());
+    // copy data to host
+    cudaMemcpy(idx_base_copy.data(), d_idx_base, idx_base.size() * sizeof(size_t), cudaMemcpyDeviceToHost);
+    return idx_base_copy;
+}
+
+const size_t &particles_4d_gpu::get_n_particles() const
+{
+    return n_particles;
+}
+
+const size_t &particles_4d_gpu::get_n_ghosts_per_particle() const
+{
+    return n_ghosts_per_particle;
+}
+
 particles_4d_gpu::~particles_4d_gpu()
 {
-    cudaFree(d_x);
-    cudaFree(d_px);
-    cudaFree(d_y);
-    cudaFree(d_py);
-    
-    cudaFree(d_steps);
-    cudaFree(d_valid);
-    cudaFree(d_ghost);
-    
-    cudaFree(d_idx);
-    cudaFree(d_idx_base);
-
-    cudaFree(d_rng_state);
+    _general_cudaFree();
 }
 
 void henon_tracker::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
@@ -1159,6 +1257,81 @@ void henon_tracker::track(particles_4d &particles, unsigned int n_turns, double 
         particles.global_steps -= n_turns;
 }
 
+std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier, double kick_module, bool inverse, std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx)
+{
+    from_idx.push_back(0);
+    to_idx.push_back(n_turns);
+    std::vector<std::vector<double>> result_vec(particles.x.size());
+
+    unsigned int n_threads_cpu = std::thread::hardware_concurrency();
+
+    // check if n_turns is valid
+    if (inverse)
+    {
+        if (n_turns > particles.global_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+    else
+    {
+        if (n_turns + particles.global_steps > allowed_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+
+    double barrier_pow_2 = barrier * barrier;
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
+    {
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                std::vector<double> store_x(n_turns+1);
+                std::vector<double> store_px(n_turns+1);
+                std::vector<double> store_y(n_turns+1);
+                std::vector<double> store_py(n_turns+1);
+
+                std::mt19937_64 rng;
+
+                for (unsigned int j = thread_idx; j < particles.x.size(); j += n_threads_cpu)
+                {
+                    store_x[0] = particles.x[j];
+                    store_px[0] = particles.px[j];
+                    store_y[0] = particles.y[j];
+                    store_py[0] = particles.py[j];
+                    for (unsigned int k = 0; k < n_turns; k++)
+                    {
+                        henon_step(
+                            particles.x[j], particles.px[j], particles.y[j], particles.py[j], particles.steps[j],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+
+                        store_x[k + 1] = particles.x[j];
+                        store_px[k + 1] = particles.px[j];
+                        store_y[k + 1] = particles.y[j];
+                        store_py[k + 1] = particles.py[j];
+                    }
+                    auto result = birkhoff_tune_vec(store_x, store_px, store_y, store_py, from_idx, to_idx);
+                    result_vec[j] = result;
+                }
+            },
+            i));
+    }
+
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    // update global_steps
+    if (!inverse)
+        particles.global_steps += n_turns;
+    else
+        particles.global_steps -= n_turns;
+
+    return result_vec;
+}
 
 henon_tracker_gpu::henon_tracker_gpu(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset) : henon_tracker(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset) 
 {

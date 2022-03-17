@@ -86,53 +86,32 @@ public:
     {
         PYBIND11_OVERRIDE(const std::vector<unsigned int>, particles_4d, get_steps);
     }
-};
 
-struct py_particles_4d_gpu : public particles_4d_gpu
-{
-public:
-    /* Inherit the constructors */
-    using particles_4d_gpu::particles_4d_gpu;
-
-    void reset() override { PYBIND11_OVERRIDE(void, particles_4d_gpu, reset, ); }
-    void add_ghost(const double &displacement_module, const std::string &direction) override
+    const std::vector<uint8_t> get_valid() const override
     {
-        PYBIND11_OVERRIDE(void, particles_4d_gpu, add_ghost, displacement_module, direction);
+        PYBIND11_OVERRIDE(const std::vector<uint8_t>, particles_4d, get_valid);
+    }
+    const std::vector<uint8_t> get_ghost() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<uint8_t>, particles_4d, get_ghost);
     }
 
-    void renormalize(const double &module_target) override
+    const std::vector<size_t> get_idx() const override
     {
-        PYBIND11_OVERRIDE(void, particles_4d_gpu, renormalize, module_target);
+        PYBIND11_OVERRIDE(const std::vector<size_t>, particles_4d, get_idx);
+    }
+    const std::vector<size_t> get_idx_base() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<size_t>, particles_4d, get_idx_base);
     }
 
-    const std::vector<std::vector<double>> get_displacement_module() const override
+    const size_t &get_n_particles() const override
     {
-        PYBIND11_OVERRIDE(const std::vector<std::vector<double>>, particles_4d_gpu, get_displacement_module, );
+        PYBIND11_OVERRIDE(const size_t &, particles_4d, get_n_particles);
     }
-    const std::vector<std::vector<std::vector<double>>> get_displacement_direction() const override
+    const size_t &get_n_ghosts_per_particle() const override
     {
-        PYBIND11_OVERRIDE(const std::vector<std::vector<std::vector<double>>>, particles_4d_gpu, get_displacement_direction);
-    }
-
-    const std::vector<double> get_x() const override
-    {
-        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d_gpu, get_x);
-    }
-    const std::vector<double> get_px() const override
-    {
-        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d_gpu, get_px);
-    }
-    const std::vector<double> get_y() const override
-    {
-        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d_gpu, get_y);
-    }
-    const std::vector<double> get_py() const override
-    {
-        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d_gpu, get_py);
-    }
-    const std::vector<unsigned int> get_steps() const override
-    {
-        PYBIND11_OVERRIDE(const std::vector<unsigned int>, particles_4d_gpu, get_steps);
+        PYBIND11_OVERRIDE(const size_t &, particles_4d, get_n_ghosts_per_particle);
     }
 };
 
@@ -200,25 +179,20 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("get_px", &particles_4d::get_px)
         .def("get_y", &particles_4d::get_y)
         .def("get_py", &particles_4d::get_py)
-        .def("get_steps", &particles_4d::get_steps);
+        .def("get_steps", &particles_4d::get_steps)
+        .def("get_valid", &particles_4d::get_valid)
+        .def("get_ghost", &particles_4d::get_ghost)
+        .def("get_idx", &particles_4d::get_idx)
+        .def("get_idx_base", &particles_4d::get_idx_base)
+        .def("get_n_particles", &particles_4d::get_n_particles)
+        .def("get_n_ghosts_per_particle", &particles_4d::get_n_ghosts_per_particle);
 
-    py::class_<particles_4d_gpu, py_particles_4d_gpu>(m, "particles_4d_gpu")
+    py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")
         .def(py::init<
              const std::vector<double> &,
              const std::vector<double> &,
              const std::vector<double> &,
-             const std::vector<double> &>())
-        .def("reset", &particles_4d_gpu::reset)
-        .def("add_ghost", &particles_4d_gpu::add_ghost,
-             py::arg("displacement_module"), py::arg("direction"))
-        .def("renormalize", &particles_4d_gpu::renormalize, py::arg("module_target"))
-        .def("get_displacement_module", &particles_4d_gpu::get_displacement_module)
-        .def("get_displacement_direction", &particles_4d_gpu::get_displacement_direction)
-        .def("get_x", &particles_4d_gpu::get_x)
-        .def("get_px", &particles_4d_gpu::get_px)
-        .def("get_y", &particles_4d_gpu::get_y)
-        .def("get_py", &particles_4d_gpu::get_py)
-        .def("get_steps", &particles_4d_gpu::get_steps);
+             const std::vector<double> &>());
 
     py::class_<henon_tracker, py_henon_tracker>(m, "henon_tracker")
         .def(py::init<
@@ -232,7 +206,8 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("compute_a_modulation", &henon_tracker::compute_a_modulation,
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
-        .def("track", &henon_tracker::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false);
+        .def("track", &henon_tracker::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
+        .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>());
 
     py::class_<henon_tracker_gpu, py_henon_tracker_gpu>(m, "henon_tracker_gpu")
         .def(py::init<
