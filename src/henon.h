@@ -176,18 +176,20 @@ public:
     void track(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
 
     std::vector<std::vector<double>> birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
+
+    std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d &particles, const double &mu) const;
 };
 
 class henon_tracker_gpu : public henon_tracker
 {
-protected:
+public:
     double *d_omega_x_sin;
     double *d_omega_x_cos;
     double *d_omega_y_sin;
     double *d_omega_y_cos;
 
     curandState *d_rand_states;
-public:
+
     henon_tracker_gpu() = default;
     henon_tracker_gpu(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
     ~henon_tracker_gpu();
@@ -195,8 +197,40 @@ public:
     virtual void compute_a_modulation(unsigned int N, double omega_x, double omega_y, std::string modulation_kind = "sps", double omega_0 = NAN, double epsilon = 0.0, unsigned int offset = 0);
 
     void track(particles_4d_gpu &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
+
+    std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d_gpu &particles, const double &mu) const;
 };
 
+struct matrix_4d_vector
+{
+    std::vector<std::vector<std::vector<double>>> matrix;
+
+    matrix_4d_vector(size_t N);
+
+    void reset();
+    void multiply(const std::vector<std::vector<std::vector<double>>> &l_matrix);
+    void structured_multiply(const henon_tracker &tracker, const particles_4d &particles, const double &mu);
+    void structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
+
+    const std::vector<std::vector<std::vector<double>>> &get_matrix() const;
+    std::vector<std::vector<double>> get_vector(const std::vector<std::vector<double>> &rv) const;
+};
+
+struct matrix_4d_vector_gpu
+{
+    double *d_matrix;
+    size_t N;
+    size_t n_blocks;
+
+    matrix_4d_vector_gpu(size_t _N);
+    ~matrix_4d_vector_gpu();
+
+    void reset();
+    void structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
+
+    const std::vector<std::vector<std::vector<double>>> get_matrix() const;
+    std::vector<std::vector<double>> get_vector(const std::vector<std::vector<double>> &rv) const;
+};
 
 struct storage_4d
 {

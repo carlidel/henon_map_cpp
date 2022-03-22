@@ -87,9 +87,32 @@ __host__ __device__ void rotation(double &x, double &px, const double &sin, cons
     }
 }
 
-__host__ __device__ std::array<std::array<double, 4>, 4> tangent_matrix(const double &x, const double &px, const double &y, const double &py, const double &sx, const double &cx, const double &sy, const double &cy, const double &mu)
+__device__ void tangent_matrix(const double &x, const double &px, const double &y, const double &py, const double &sx, const double &cx, const double &sy, const double &cy, const double &mu, double *out, size_t idx)
 {
-    std::array<std::array<double, 4>, 4> matrix;
+    out[idx + 0 * 4 + 0] = cx + sx * (2 * x + mu * 3 * x * x - mu * 3 * y * y);
+    out[idx + 0 * 4 + 1] = sx;
+    out[idx + 0 * 4 + 2] = sx * (-2 * y - mu * 6 * x * y);
+    out[idx + 0 * 4 + 3] = 0.0;
+
+    out[idx + 1 * 4 + 0] = -sx + cx * (2 * x + mu * 3 * x * x - mu * 3 * y * y);
+    out[idx + 1 * 4 + 1] = cx;
+    out[idx + 1 * 4 + 2] = cx * (-2 * y - mu * 6 * x * y);
+    out[idx + 1 * 4 + 3] = 0.0;
+
+    out[idx + 2 * 4 + 0] = sy * (-2 * y - mu * 6 * x * y);
+    out[idx + 2 * 4 + 1] = 0.0;
+    out[idx + 2 * 4 + 2] = cy + sy * (-2 * x - mu * 3 * x * x + mu * 3 * y * y);
+    out[idx + 2 * 4 + 3] = sy;
+
+    out[idx + 3 * 4 + 0] = cy * (-2 * y - mu * 6 * x * y);
+    out[idx + 3 * 4 + 1] = 0.0;
+    out[idx + 3 * 4 + 2] = -sy + cy * (-2 * x - mu * 3 * x * x + mu * 3 * y * y);
+    out[idx + 3 * 4 + 3] = cy;
+}
+
+__host__ std::vector<std::vector<double>> tangent_matrix(const double &x, const double &px, const double &y, const double &py, const double &sx, const double &cx, const double &sy, const double &cy, const double &mu)
+{
+    std::vector<std::vector<double>> matrix(4, std::vector<double>(4, 0.0));
     matrix[0][0] = cx + sx * (2 * x + mu * 3 * x * x - mu * 3 * y * y);
     matrix[0][1] = sx;
     matrix[0][2] = sx * (-2 * y - mu * 6 * x * y);
@@ -113,32 +136,51 @@ __host__ __device__ std::array<std::array<double, 4>, 4> tangent_matrix(const do
     return matrix;
 }
 
-__host__ __device__ std::array<std::array<double, 4>, 4> multiply_matrix(const double *m2, const std::array<std::array<double, 4>, 4> &m1)
+std::vector<std::vector<double>> multiply_matrices(const std::vector<std::vector<double>> &matrix1, const std::vector<std::vector<double>> &matrix2)
 {
-    std::array<std::array<double, 4>, 4> m3;
-    for (unsigned int i = 0; i < 4; i++)
+    std::vector<std::vector<double>> matrix(4, std::vector<double>(4, 0.0));
+    for (int i = 0; i < 4; i++)
     {
-        for (unsigned int j = 0; j < 4; j++)
+        for (int j = 0; j < 4; j++)
         {
-            m3[i][j] = 0.0;
-            for (unsigned int k = 0; k < 4; k++)
+            for (int k = 0; k < 4; k++)
             {
-                m3[i][j] += m1[i][k] * m2[k * 4 + j];
+                matrix[i][j] += matrix1[i][k] * matrix2[k][j];
             }
         }
     }
-    return m3;
+    return matrix;
 }
 
-__host__ __device__ double tr_transpose_matrix(const double *x)
+__global__ void get_matrices_and_multiply(double *matrices, const double *x, const double *px, const double *y, const double *py, const double *sx, const double *cx, const double *sy, const double *cy, const double &mu, const int &size)
 {
-    double result = 0.0;
-    for (int i = 0; i < 16; i++)
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (idx > size)
+        return;
+    
+    double *tmp_matrix = new double[16];
+
+    tangent_matrix(x[idx], px[idx], y[idx], py[idx], sx[idx], cx[idx], sy[idx], cy[idx], mu, tmp_matrix, 0);
+
+    // multiply tmp_matrix with matrices
+    for (int i = 0; i < 4; i++)
     {
-        result += x[i] * x[i];
+        for (int j = 0; j < 4; j++)
+        {
+            matrices[idx * 16 + i * 4 + j] = 0.0;
+            for (int k = 0; k < 4; k++)
+            {
+                matrices[idx * 16 + i * 4 + j] += tmp_matrix[i * 4 + k] * matrices[idx * 16 + k * 4 + j];
+            }
+        }
     }
-    return result;
+
+    delete[] tmp_matrix;
 }
+
+
+
 
 __host__ void random_4d_kick(double &x, double &px, double &y, double &py, const double &kick_module, std::mt19937_64 &generator)
 {
@@ -712,10 +754,10 @@ const std::vector<std::vector<std::vector<double>>> particles_4d::get_displaceme
                     realign(dir[0], dir[1], dir[2], dir[3],
                             x[base_idx], px[base_idx], y[base_idx], py[base_idx],
                             module, 1.0);
-                    dir_displacement[0][base_idx][idx[i]] = dir[0];
-                    dir_displacement[1][base_idx][idx[i]] = dir[1];
-                    dir_displacement[2][base_idx][idx[i]] = dir[2];
-                    dir_displacement[3][base_idx][idx[i]] = dir[3];
+                    dir_displacement[0][base_idx][idx[i]] = dir[0] - x[base_idx];
+                    dir_displacement[1][base_idx][idx[i]] = dir[1] - px[base_idx];
+                    dir_displacement[2][base_idx][idx[i]] = dir[2] - y[base_idx];
+                    dir_displacement[3][base_idx][idx[i]] = dir[3] - py[base_idx];
                 }
             },
             t
@@ -1020,6 +1062,11 @@ __global__ void gpu_particle_directions(
         out_y[idx_base[i] + pad * idx[i]], out_py[idx_base[i] + pad * idx[i]],
         x[idx_base[i]], px[idx_base[i]], y[idx_base[i]], py[idx_base[i]], initial_module, 1.0
     );
+
+    out_x[idx_base[i] + pad * idx[i]] -= x[idx_base[i]];
+    out_px[idx_base[i] + pad * idx[i]] -= px[idx_base[i]];
+    out_y[idx_base[i] + pad * idx[i]] -= y[idx_base[i]];
+    out_py[idx_base[i] + pad * idx[i]] -= py[idx_base[i]];
 }
 
 const std::vector<std::vector<std::vector<double>>> particles_4d_gpu::get_displacement_direction() const
@@ -1158,6 +1205,244 @@ const size_t &particles_4d_gpu::get_n_ghosts_per_particle() const
 particles_4d_gpu::~particles_4d_gpu()
 {
     _general_cudaFree();
+}
+
+
+matrix_4d_vector::matrix_4d_vector(size_t N)
+{
+    matrix = std::vector<std::vector<std::vector<double>>>(N, std::vector<std::vector<double>>(4, std::vector<double>(4, 0.0)));
+
+    // initialize with identity matrices
+    for (size_t i = 0; i < N; i++)
+    {
+        matrix[i][0][0] = 1.0;
+        matrix[i][1][1] = 1.0;
+        matrix[i][2][2] = 1.0;
+        matrix[i][3][3] = 1.0;
+    }
+}
+
+void matrix_4d_vector::reset()
+{
+    // reset to identity matrices
+    matrix = std::vector<std::vector<std::vector<double>>>(matrix.size(), std::vector<std::vector<double>>(4, std::vector<double>(4, 0.0)));
+    for (size_t i = 0; i < matrix.size(); i++)
+    {
+        matrix[i][0][0] = 1.0;
+        matrix[i][1][1] = 1.0;
+        matrix[i][2][2] = 1.0;
+        matrix[i][3][3] = 1.0;
+    }
+}
+
+void matrix_4d_vector::multiply(const std::vector<std::vector<std::vector<double>>> &l_matrix)
+{
+    assert(matrix.size() == l_matrix.size());
+    auto n_threads = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads;
+
+    for (size_t i = 0; i < n_threads; i++)
+    {
+        threads.push_back(std::thread([&, i]() {
+            for (size_t j = i; j < matrix.size(); j += n_threads)
+            {
+                matrix[j] = multiply_matrices(l_matrix[j], matrix[j]);
+            }
+        }));
+    }
+
+    for (auto &thread : threads)
+    {
+        thread.join();
+    }
+}
+
+void matrix_4d_vector::structured_multiply(const henon_tracker &tracker, const particles_4d &particles, const double &mu)
+{
+    return multiply(
+        tracker.get_tangent_matrix(particles, mu));
+}
+
+void matrix_4d_vector::structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu)
+{
+    return multiply(
+        tracker.get_tangent_matrix(particles, mu));
+}
+
+const std::vector<std::vector<std::vector<double>>> &matrix_4d_vector::get_matrix() const
+{
+    return matrix;
+}
+
+std::vector<std::vector<double>> matrix_4d_vector::get_vector(const std::vector<std::vector<double>> &rv) const
+{
+    std::vector<std::vector<double>> vectors(matrix.size(), std::vector<double>(4, 0.0));
+
+    auto n_threads = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads;
+
+    for (size_t i = 0; i < n_threads; i++)
+    {
+        threads.push_back(std::thread([&, i]()
+                                      {
+            for (size_t j = i; j < matrix.size(); j += n_threads)
+            {
+                // multiply matrix[j] with rv
+                vectors[j][0] = matrix[j][0][0] * rv[j][0] + matrix[j][0][1] * rv[j][1] + matrix[j][0][2] * rv[j][2] + matrix[j][0][3] * rv[j][3];
+                vectors[j][1] = matrix[j][1][0] * rv[j][0] + matrix[j][1][1] * rv[j][1] + matrix[j][1][2] * rv[j][2] + matrix[j][1][3] * rv[j][3];
+                vectors[j][2] = matrix[j][2][0] * rv[j][0] + matrix[j][2][1] * rv[j][1] + matrix[j][2][2] * rv[j][2] + matrix[j][2][3] * rv[j][3];
+                vectors[j][3] = matrix[j][3][0] * rv[j][0] + matrix[j][3][1] * rv[j][1] + matrix[j][3][2] * rv[j][2] + matrix[j][3][3] * rv[j][3];
+            } }));
+    }
+
+    for (auto &thread : threads)
+    {
+        thread.join();
+    }
+
+    return vectors;
+}
+
+matrix_4d_vector_gpu::matrix_4d_vector_gpu(size_t _N)
+{
+    N = _N;
+    n_blocks = (N + 512 - 1) / 512;
+    std::vector<double> matrix_flattened(N * 16, 0.0);
+    for (size_t i = 0; i < N; i++)
+    {
+        matrix_flattened[i * 16 + 0] = 1.0;
+        matrix_flattened[i * 16 + 5] = 1.0;
+        matrix_flattened[i * 16 + 10] = 1.0;
+        matrix_flattened[i * 16 + 15] = 1.0;
+    }
+
+    // allocate memory on GPU
+    cudaMalloc(&d_matrix, matrix_flattened.size() * sizeof(double));
+    cudaMemcpy(d_matrix, matrix_flattened.data(), matrix_flattened.size() * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+matrix_4d_vector_gpu::~matrix_4d_vector_gpu()
+{
+    cudaFree(d_matrix);
+}
+
+void matrix_4d_vector_gpu::reset()
+{
+    // reset to identity matrices
+    std::vector<double> matrix_flattened(matrix_flattened.size(), 0.0);
+    for (size_t i = 0; i < matrix_flattened.size(); i += 16)
+    {
+        matrix_flattened[i + 0] = 1.0;
+        matrix_flattened[i + 5] = 1.0;
+        matrix_flattened[i + 10] = 1.0;
+        matrix_flattened[i + 15] = 1.0;
+    }
+
+    cudaMemcpy(d_matrix, matrix_flattened.data(), matrix_flattened.size() * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+void matrix_4d_vector_gpu::structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu)
+{
+    get_matrices_and_multiply<<<n_blocks, 512>>>(
+        d_matrix,
+        particles.d_x, particles.d_px, particles.d_y, particles.d_py, 
+        tracker.d_omega_x_sin, tracker.d_omega_x_cos,
+        tracker.d_omega_y_sin, tracker.d_omega_y_cos,
+        mu, N);
+}
+
+std::vector<std::vector<double>> matrix_4d_vector_gpu::get_vector(const std::vector<std::vector<double>> &rv) const
+{
+    std::vector<double> matrix_flattened(N * 16, 0.0);
+
+    // copy matrix from GPU to CPU
+    cudaMemcpy(matrix_flattened.data(), d_matrix, matrix_flattened.size() * sizeof(double), cudaMemcpyDeviceToHost);
+
+    std::vector<std::vector<std::vector<double>>> matrix(N, std::vector<std::vector<double>>(4, std::vector<double>(4, 0.0)));
+
+    for (size_t i = 0; i < N; i++)
+    {
+        matrix[i][0][0] = matrix_flattened[i * 16 + 0];
+        matrix[i][0][1] = matrix_flattened[i * 16 + 1];
+        matrix[i][0][2] = matrix_flattened[i * 16 + 2];
+        matrix[i][0][3] = matrix_flattened[i * 16 + 3];
+
+        matrix[i][1][0] = matrix_flattened[i * 16 + 4];
+        matrix[i][1][1] = matrix_flattened[i * 16 + 5];
+        matrix[i][1][2] = matrix_flattened[i * 16 + 6];
+        matrix[i][1][3] = matrix_flattened[i * 16 + 7];
+
+        matrix[i][2][0] = matrix_flattened[i * 16 + 8];
+        matrix[i][2][1] = matrix_flattened[i * 16 + 9];
+        matrix[i][2][2] = matrix_flattened[i * 16 + 10];
+        matrix[i][2][3] = matrix_flattened[i * 16 + 11];
+
+        matrix[i][3][0] = matrix_flattened[i * 16 + 12];
+        matrix[i][3][1] = matrix_flattened[i * 16 + 13];
+        matrix[i][3][2] = matrix_flattened[i * 16 + 14];
+        matrix[i][3][3] = matrix_flattened[i * 16 + 15];
+    }
+
+    std::vector<std::vector<double>> vectors(matrix.size(), std::vector<double>(4, 0.0));
+
+    auto n_threads = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads;
+
+    for (size_t i = 0; i < n_threads; i++)
+    {
+        threads.push_back(std::thread([&, i]()
+                                      {
+            for (size_t j = i; j < matrix.size(); j += n_threads)
+            {
+                // multiply matrix[j] with rv
+                vectors[j][0] = matrix[j][0][0] * rv[j][0] + matrix[j][0][1] * rv[j][1] + matrix[j][0][2] * rv[j][2] + matrix[j][0][3] * rv[j][3];
+                vectors[j][1] = matrix[j][1][0] * rv[j][0] + matrix[j][1][1] * rv[j][1] + matrix[j][1][2] * rv[j][2] + matrix[j][1][3] * rv[j][3];
+                vectors[j][2] = matrix[j][2][0] * rv[j][0] + matrix[j][2][1] * rv[j][1] + matrix[j][2][2] * rv[j][2] + matrix[j][2][3] * rv[j][3];
+                vectors[j][3] = matrix[j][3][0] * rv[j][0] + matrix[j][3][1] * rv[j][1] + matrix[j][3][2] * rv[j][2] + matrix[j][3][3] * rv[j][3];
+            } }));
+    }
+
+    for (auto &thread : threads)
+    {
+        thread.join();
+    }
+
+    return vectors;
+}
+
+const std::vector<std::vector<std::vector<double>>> matrix_4d_vector_gpu::get_matrix() const
+{
+    std::vector<double> matrix_flattened(N * 16, 0.0);
+
+    // copy matrix from GPU to CPU
+    cudaMemcpy(matrix_flattened.data(), d_matrix, matrix_flattened.size() * sizeof(double), cudaMemcpyDeviceToHost);
+
+    std::vector<std::vector<std::vector<double>>> matrix(N, std::vector<std::vector<double>>(4, std::vector<double>(4, 0.0)));
+
+    for (size_t i = 0; i < N; i++)
+    {
+        matrix[i][0][0] = matrix_flattened[i * 16 + 0];
+        matrix[i][0][1] = matrix_flattened[i * 16 + 1];
+        matrix[i][0][2] = matrix_flattened[i * 16 + 2];
+        matrix[i][0][3] = matrix_flattened[i * 16 + 3];
+
+        matrix[i][1][0] = matrix_flattened[i * 16 + 4];
+        matrix[i][1][1] = matrix_flattened[i * 16 + 5];
+        matrix[i][1][2] = matrix_flattened[i * 16 + 6];
+        matrix[i][1][3] = matrix_flattened[i * 16 + 7];
+
+        matrix[i][2][0] = matrix_flattened[i * 16 + 8];
+        matrix[i][2][1] = matrix_flattened[i * 16 + 9];
+        matrix[i][2][2] = matrix_flattened[i * 16 + 10];
+        matrix[i][2][3] = matrix_flattened[i * 16 + 11];
+
+        matrix[i][3][0] = matrix_flattened[i * 16 + 12];
+        matrix[i][3][1] = matrix_flattened[i * 16 + 13];
+        matrix[i][3][2] = matrix_flattened[i * 16 + 14];
+        matrix[i][3][3] = matrix_flattened[i * 16 + 15];
+    }
+
+    return matrix;
 }
 
 void henon_tracker::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
@@ -1333,6 +1618,33 @@ std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &par
     return result_vec;
 }
 
+std::vector<std::vector<std::vector<double>>> henon_tracker::get_tangent_matrix(const particles_4d &particles, const double &mu) const
+{
+    auto x = particles.get_x();
+    auto px = particles.get_px();
+    auto y = particles.get_y();
+    auto py = particles.get_py();
+
+    auto valid = particles.get_valid();
+    auto steps = particles.global_steps;
+
+    std::vector<std::vector<std::vector<double>>> result(x.size());
+
+    for (unsigned int i = 0; i < x.size(); i++)
+    {
+        if (valid[i])
+        {
+            result[i] = tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+        }
+        else
+        {
+            result[i] = std::vector<std::vector<double>>(4, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN()));
+        }
+    }
+
+    return result;
+}
+
 henon_tracker_gpu::henon_tracker_gpu(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset) : henon_tracker(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset) 
 {
     cudaMalloc(&d_omega_x_sin, omega_x_sin.size() * sizeof(double));
@@ -1404,6 +1716,33 @@ void henon_tracker_gpu::track(particles_4d_gpu &particles, unsigned int n_turns,
         particles.global_steps += n_turns;
     else
         particles.global_steps -= n_turns;
+}
+
+std::vector<std::vector<std::vector<double>>> henon_tracker_gpu::get_tangent_matrix(const particles_4d_gpu &particles, const double &mu) const
+{
+    auto x = particles.get_x();
+    auto px = particles.get_px();
+    auto y = particles.get_y();
+    auto py = particles.get_py();
+
+    auto valid = particles.get_valid();
+    auto steps = particles.global_steps;
+    
+    std::vector<std::vector<std::vector<double>>> result(x.size());
+
+    for (unsigned int i = 0; i < x.size(); i++)
+    {
+        if (valid[i])
+        {
+            result[i] = tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+        }
+        else
+        {
+            result[i] = std::vector<std::vector<double>>(4, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN()));
+        }
+    }
+
+    return result;
 }
 
 storage_4d::storage_4d(size_t N)

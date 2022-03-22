@@ -4,10 +4,12 @@ import pandas as pd
 
 #from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
 
-from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d, is_cuda_device_available
+from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d
 from .henon_map_engine import birkhoff_weights as cpp_birkhoff_weights
 from .henon_map_engine import henon_tracker as cpp_henon_tracker
 from .henon_map_engine import henon_tracker_gpu as cpp_henon_tracker_gpu
+from .henon_map_engine import matrix_4d_vector as cpp_matrix_4d_vector
+from .henon_map_engine import matrix_4d_vector_gpu as cpp_matrix_4d_vector_gpu
 
 def gpu_available():
     return numba.cuda.is_available()
@@ -65,6 +67,30 @@ class particles():
         return np.asarray(self.particles.get_steps())
 
 
+class matrix_4d_vector():
+    def __init__(self, N, force_cpu=False):
+        GPU = gpu_available()
+        if force_cpu or not GPU:
+            self.matrix = cpp_matrix_4d_vector(N)
+        else:
+            self.matrix = cpp_matrix_4d_vector_gpu(N)
+
+    def reset(self):
+        self.matrix.reset()
+
+    def multiply(self, matrices):
+        self.matrix.multiply(matrices)
+
+    def structured_multiply(self, tracker, particles, mu):
+        self.matrix.structured_multiply(tracker.tracker, particles.particles, mu)
+
+    def get_matrix(self):
+        return np.asarray(self.matrix.get_matrix())
+    
+    def get_vector(self, vector):
+        return np.asarray(self.matrix.get_vector(vector))
+
+
 class henon_tracker():
     def __init__(self, N, omega_x, omega_y, modulation_kind, omega_0=np.nan, epsilon=0.0, offset=0, force_CPU=False):
         # check if system has a nvidia gpu available
@@ -90,6 +116,9 @@ class henon_tracker():
         # add a row to the dataframe
         pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
         return pd_result 
+
+    def get_tangent_matrix(self, particles, mu):
+        return np.asarray(self.tracker.get_tangent_matrix(particles.particles, mu))
 
 
 class storage():

@@ -187,6 +187,26 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("get_n_particles", &particles_4d::get_n_particles)
         .def("get_n_ghosts_per_particle", &particles_4d::get_n_ghosts_per_particle);
 
+    py::class_<matrix_4d_vector>(m, "matrix_4d_vector")
+        .def(py::init<size_t>())
+        .def("reset", &matrix_4d_vector::reset)
+        .def("multiply", &matrix_4d_vector::multiply, py::arg("matrix"))
+        .def("structured_multiply",
+             static_cast<void (matrix_4d_vector::*)(const henon_tracker &, const particles_4d &, const double &)>(&matrix_4d_vector::structured_multiply),
+             py::arg("tracker"), py::arg("particles"), py::arg("mu"))
+        .def("structured_multiply",
+             static_cast<void (matrix_4d_vector::*)(const henon_tracker &, const particles_4d &, const double &)>(&matrix_4d_vector::structured_multiply),
+             py::arg("tracker"), py::arg("particles"), py::arg("mu"))
+        .def("get_matrix", &matrix_4d_vector::get_matrix)
+        .def("get_vector", &matrix_4d_vector::get_vector, py::arg("vector"));
+
+    py::class_<matrix_4d_vector_gpu>(m, "matrix_4d_vector_gpu")
+        .def(py::init<size_t>())
+        .def("reset", &matrix_4d_vector_gpu::reset)
+        .def("structured_multiply", &matrix_4d_vector_gpu::structured_multiply, py::arg("tracker"), py::arg("particles"), py::arg("mu"))
+        .def("get_matrix", &matrix_4d_vector_gpu::get_matrix)
+        .def("get_vector", &matrix_4d_vector_gpu::get_vector, py::arg("vector"));
+
     py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")
         .def(py::init<
              const std::vector<double> &,
@@ -207,7 +227,8 @@ PYBIND11_MODULE(henon_map_engine, m)
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
         .def("track", &henon_tracker::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
-        .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>());
+        .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
+        .def("get_tangent_matrix", &henon_tracker::get_tangent_matrix, "get tangent matrix", py::arg("particles"), py::arg("mu"));
 
     py::class_<henon_tracker_gpu, py_henon_tracker_gpu>(m, "henon_tracker_gpu")
         .def(py::init<
@@ -221,7 +242,7 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("compute_a_modulation", &henon_tracker_gpu::compute_a_modulation,
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
-        .def("track", &henon_tracker_gpu::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false);
+        .def("get_tangent_matrix", &henon_tracker_gpu::get_tangent_matrix, "Get tangent matrix", py::arg("particles"), py::arg("mu"));
 
     py::class_<storage_4d>(m, "storage_4d")
         .def(py::init<size_t>())
