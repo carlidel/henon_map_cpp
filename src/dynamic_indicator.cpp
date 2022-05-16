@@ -3,52 +3,61 @@
 // mutex lock for fft
 std::mutex fft_lock;
 
+std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> fft_allocate(std::vector<unsigned int> const &n_points)
+{
+    fft_lock.lock();
+    std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> plans;
+    for (auto &x: n_points) {
+        fftw_complex *in = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * x);
+        fftw_complex *out = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * x);
+        fftw_plan plan = fftw_plan_dft_1d(x, in, out, FFTW_FORWARD, FFTW_MEASURE);
+        plans[x] = std::make_tuple(in, out, plan);
+    }
+    fft_lock.unlock();
+    return plans;
+}
 
-std::array<std::vector<double>, 2> compute_fft(std::vector<double> const &real_signal, std::vector<double> const &imag_signal, bool hanning_window) {
+void fft_free(std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> &fft_map)
+{
+    fft_lock.lock();
+    for (auto &x: fft_map) {
+        fftw_destroy_plan(std::get<2>(x.second));
+        fftw_free(std::get<0>(x.second));
+        fftw_free(std::get<1>(x.second));
+    }
+    fft_map.clear();
+    fft_lock.unlock();
+}
+
+std::vector<double> compute_fft(std::vector<double> const &real_signal, std::vector<double> const &imag_signal, bool hanning_window, fftw_complex *in, fftw_complex *out, fftw_plan p)
+{
     // check if the signal is of the correct length
     if (real_signal.size() != imag_signal.size()) {
         throw std::invalid_argument("real and imag signals must have the same length");
     }
-    int N = real_signal.size();
+    auto N = real_signal.size();
     
-    std::vector<double> fft_real(N);
-    std::vector<double> fft_imag(N);
+    std::vector<double> fft_module(N);
 
-    // apparently, we need a mutex here...
-    fft_lock.lock();
-
-    fftw_complex *in, *out;
-    fftw_plan p;
-    in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    p = fftw_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-
-    // free the mutex
-    fft_lock.unlock();
-
-    for (int i = 0; i < N; i++) {
+    for (unsigned int i = 0; i < N; i++) {
         in[i][0] = real_signal[i];
         in[i][1] = imag_signal[i];
     }
 
     // if hanning window is true, apply hanning window
     if (hanning_window) {
-        for (int i = 0; i < N; i++) {
-            in[i][0] *= 0.5 * (1 - cos(2 * M_PI * i / (N - 1)));
-            in[i][1] *= 0.5 * (1 - cos(2 * M_PI * i / (N - 1)));
+        for (unsigned int i = 0; i < N; i++) {
+            in[i][0] *= 2 * pow((sin(M_PI * i / (N))), 2);
+            in[i][1] *= 2 * pow((sin(M_PI * i / (N))), 2);
         }
     }
 
     fftw_execute(p);
-    for (int i = 0; i < N; i++) {
-        fft_real[i] = out[i][0];
-        fft_imag[i] = out[i][1];
+    for (unsigned int i = 0; i < N; i++) {
+        fft_module[i] = sqrt(out[i][0] * out[i][0] + out[i][1] * out[i][1]);
     }
-    fftw_destroy_plan(p);
-    fftw_free(in);
-    fftw_free(out);
 
-    return {fft_real, fft_imag};
+    return fft_module;
 }
 
 std::vector<double> birkhoff_weights(unsigned int n_weights)
@@ -57,20 +66,8 @@ std::vector<double> birkhoff_weights(unsigned int n_weights)
     std::vector<double> weights(n_weights);
     for (unsigned int i = 0; i < n_weights; i++)
     {
-        if (i == 0)
-        {
-            weights[i] = 0.0;
-        }
-        else if (i == n_weights - 1)
-        {
-            weights[i] = 0.0;
-        }
-        else
-        {
-            // TODO: check if this is correct
-            double t = (double)i / (double)(n_weights - 1);
-            weights[i] = exp((t * (1.0 - t)));
-        }
+        double t = (double)i / (double)(n_weights);
+        weights[i] = exp(-1/(t * (1.0 - t)));
     }
     auto sum = std::accumulate(weights.begin(), weights.end(), 0.0);
     // multiply by 1/sum to get the weights
@@ -134,55 +131,54 @@ double birkhoff_tune(
 }
 
 
-double interpolation(std::vector<double> const &data, int index)
+double A(const double &a, const double &b, const double &c)
 {
-    // check if the index is valid
-    if (index < 0 || index >= data.size())
-    {
-        throw std::invalid_argument("interpolation: index must be between 0 and data.size()");
-    }
+    return (-(a + b * c) * (a - b) + b * sqrt(pow(c, 2) * pow((a + b), 2) - 2 * a * b * (2 * pow(c, 2) - c - 1))) / (pow(a, 2) + pow(b, 2) + 2 * a * b * c);
+}
 
-    // if the index is 0 or data.size() - 1, return the value at that index
+double interpolation(std::vector<double> const &data)
+{
+    // find index of maximum value in data
+    unsigned int index = std::distance(data.begin(), std::max_element(data.begin(), data.end()));
+    double N = double(data.size());
+
+    // if the index is 0 or data.size() - 1, return
     if (index == 0)
     {
-        return data[0];
+        return 1.0;
     }
     else if (index == data.size() - 1)
     {
-        return data[data.size() - 1];
+        return 0.0;
     }
 
     // if the index is in the middle, interpolate
-    double cf1 = data[index - 1];
-    double cf2 = data[index];
-    double cf3 = data[index + 1];
-
-    double p1, p2, nn;
-    if (cf3 > cf1)
+    unsigned int i1, i2;
+    if (data[index - 1] > data[index + 1])
     {
-        p1 = cf2;
-        p2 = cf3;
-        nn = index;
+        i1 = index - 1;
+        i2 = index;
+        index = index - 1;
     }
     else
     {
-        p1 = cf1;
-        p2 = cf2;
-        nn = index - 1;
+        i1 = index;
+        i2 = index + 1;
     }
-    double p3 = cos(2 * M_PI / data.size());
-    
-    // TODO: check if this is correct
-    double value = ((nn / data.size()) + (1.0 / M_1_PI) * asin(sin(2 * M_PI / data.size()) * ((-(p1 + p2 * p3) * (p1 - p2) + p2 * sqrt(p3 * p3 * p3 * (p1 + p2) * (p1 + p2) - 2 * p1 * p2 * (2 * p3 * p3 - p3 - 1))) / (p1 * p1 + p2 * p2 + 2 * p1 * p2 * p3))));
+
+    double value = (
+        (double(index) / N) + (1.0 / (2.0*M_PI)) * asin(
+            A(data[i1], data[i2], cos(2.0*M_PI/N)) * sin(2.0*M_PI/N)
+        )
+    );
 
     return std::abs(1.0 - value);
 }
 
-
 double fft_tune(
-    std::vector<double> const& x,
-    std::vector<double> const& px
-)
+    std::vector<double> const &x,
+    std::vector<double> const &px,
+    fftw_complex *in, fftw_complex *out, fftw_plan plan)
 {
     // check if vectors are of the same size
     if (x.size() != px.size())
@@ -192,32 +188,12 @@ double fft_tune(
     // get size of vectors
     int n = x.size();
 
-    // get fft of the vectors
-    std::array<std::vector<double>, 2> fft_x = compute_fft(x, px, true);
-
     // compute the magnitude of the fft
-    std::vector<double> fft_mag(n);
-    for (int i = 0; i < n; i++)
-    {
-        fft_mag[i] = std::sqrt(
-            fft_x[0][i] * fft_x[0][i] + fft_x[1][i] * fft_x[1][i]
-        );
-    }
-
-    // find the index of the maximum magnitude
-    int max_index = 0;
-    for (int i = 1; i < n; i++)
-    {
-        if (fft_mag[i] > fft_mag[max_index])
-        {
-            max_index = i;
-        }
-    }
+    std::vector<double> fft_mag = compute_fft(x, px, true, in, out, plan);
 
     // compute the interpolation
-    return interpolation(fft_mag, max_index);
+    return interpolation(fft_mag);
 }
-
 
 std::vector<double> birkhoff_tune_vec(std::vector<double> const &x, std::vector<double> const &px, std::vector<double> const &y, std::vector<double> const &py, std::vector<unsigned int> const &from, std::vector<unsigned int> const &to)
 {
@@ -264,7 +240,8 @@ std::vector<double> birkhoff_tune_vec(std::vector<double> const &x, std::vector<
     return tunes;
 }
 
-std::vector<double> fft_tune_vec(std::vector<double> const &x, std::vector<double> const &px, std::vector<double> const &y, std::vector<double> const &py, std::vector<unsigned int> const &from, std::vector<unsigned int> const &to)
+std::vector<double> fft_tune_vec(std::vector<double> const &x, std::vector<double> const &px, std::vector<double> const &y, std::vector<double> const &py, std::vector<unsigned int> const &from, std::vector<unsigned int> const &to,
+std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> plans)
 {
     // check if vectors are of the same size
     if (x.size() != px.size() || x.size() != y.size() || x.size() != py.size())
@@ -284,7 +261,7 @@ std::vector<double> fft_tune_vec(std::vector<double> const &x, std::vector<doubl
         // get the indices of the elements to be combined
         unsigned int from_index = from[i];
         unsigned int to_index = to[i];
-
+        unsigned int n = to_index - from_index + 1;
         // check if from and to are valid
         if (from_index >= x.size() || to_index >= x.size())
         {
@@ -297,14 +274,77 @@ std::vector<double> fft_tune_vec(std::vector<double> const &x, std::vector<doubl
         std::vector<double> y_sub = std::vector<double>(y.begin() + from_index, y.begin() + to_index + 1);
         std::vector<double> py_sub = std::vector<double>(py.begin() + from_index, py.begin() + to_index + 1);
 
+        // if any number in the sub vecros is a NaN, push back a quiet NaN
+        if (std::any_of(x_sub.begin(), x_sub.end(), [](double x){return std::isnan(x);}) ||
+            std::any_of(px_sub.begin(), px_sub.end(), [](double x){return std::isnan(x);}) ||
+            std::any_of(y_sub.begin(), y_sub.end(), [](double x){return std::isnan(x);}) ||
+            std::any_of(py_sub.begin(), py_sub.end(), [](double x){return std::isnan(x);}))
+        {
+            tunes.push_back(std::numeric_limits<double>::quiet_NaN());
+            tunes.push_back(std::numeric_limits<double>::quiet_NaN());
+            continue;
+        }
+
         // compute the tune
-        tunes.push_back(fft_tune(x_sub, px_sub));
-        tunes.push_back(fft_tune(y_sub, py_sub));
+        tunes.push_back(fft_tune(x_sub, px_sub, std::get<0>(plans[n]), std::get<1>(plans[n]), std::get<2>(plans[n])));
+        tunes.push_back(fft_tune(y_sub, py_sub, std::get<0>(plans[n]), std::get<1>(plans[n]), std::get<2>(plans[n])));
     }
 
     // compute the full tunes
-    tunes.push_back(fft_tune(x, px));
-    tunes.push_back(fft_tune(y, py));
+    // get the vectors of the elements to be combined
+    std::vector<double> x_sub = std::vector<double>(x.begin() + 1, x.end());
+    std::vector<double> px_sub = std::vector<double>(px.begin() + 1, px.end());
+    std::vector<double> y_sub = std::vector<double>(y.begin() + 1, y.end());
+    std::vector<double> py_sub = std::vector<double>(py.begin() + 1, py.end());
 
+    if (std::any_of(x_sub.begin(), x_sub.end(), [](double x)
+                    { return std::isnan(x); }) ||
+        std::any_of(px_sub.begin(), px_sub.end(), [](double x)
+                    { return std::isnan(x); }) ||
+        std::any_of(y_sub.begin(), y_sub.end(), [](double x)
+                    { return std::isnan(x); }) ||
+        std::any_of(py_sub.begin(), py_sub.end(), [](double x)
+                    { return std::isnan(x); }))
+    {
+        tunes.push_back(std::numeric_limits<double>::quiet_NaN());
+        tunes.push_back(std::numeric_limits<double>::quiet_NaN());
+    }
+    else
+    {
+        tunes.push_back(fft_tune(x_sub, px_sub, std::get<0>(plans[x.size() - 1]), std::get<1>(plans[x.size() - 1]), std::get<2>(plans[x.size() - 1])));
+        tunes.push_back(fft_tune(y_sub, py_sub, std::get<0>(plans[x.size() - 1]), std::get<1>(plans[x.size() - 1]), std::get<2>(plans[x.size() - 1])));
+    }
     return tunes;
+}
+
+
+std::array<double, 2> get_tunes(std::vector<double> x, std::vector<double> px)
+{
+    // check if vectors are of the same size
+    if (x.size() != px.size())
+    {
+        throw std::runtime_error("get_tunes: x and px must be of the same size");
+    }
+    auto size = x.size();
+    // if any number in the sub vecros is a NaN, push back a quiet NaN
+    if (std::any_of(x.begin(), x.end(), [](double x){return std::isnan(x);}) ||
+        std::any_of(px.begin(), px.end(), [](double x){return std::isnan(x);}))
+    {
+        return std::array<double, 2>{std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()};
+    }
+
+    double birkhoff_tune_val = birkhoff_tune(x, px);
+
+    fftw_complex *in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * size);
+    fftw_complex *out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * size);
+    fftw_plan plan = fftw_plan_dft_1d(size, in, out, FFTW_FORWARD, FFTW_MEASURE);
+
+    double fft_tune_val = fft_tune(x, px, in, out, plan);
+
+    // free the memory
+    fftw_destroy_plan(plan);
+    fftw_free(in);
+    fftw_free(out);
+
+    return std::array<double, 2>{fft_tune_val, birkhoff_tune_val};
 }

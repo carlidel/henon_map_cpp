@@ -1,11 +1,24 @@
 import numpy as np
-from numba import njit, prange
+import numba.cuda
 import pandas as pd
 
-from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
+#from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
 
-class henon_tracker():
-    def __init__(self, x_0, px_0, y_0, py_0, omega_x, omega_y, force_CPU=False):
+from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d
+from .henon_map_engine import birkhoff_weights as cpp_birkhoff_weights
+from .henon_map_engine import henon_tracker as cpp_henon_tracker
+from .henon_map_engine import henon_tracker_gpu as cpp_henon_tracker_gpu
+from .henon_map_engine import matrix_4d_vector as cpp_matrix_4d_vector
+from .henon_map_engine import matrix_4d_vector_gpu as cpp_matrix_4d_vector_gpu
+
+def gpu_available():
+    return numba.cuda.is_available()
+
+def birkhoff_weights(n):
+    return np.asarray(cpp_birkhoff_weights(n))
+
+class particles():
+    def __init__(self, x_0, px_0, y_0, py_0, force_CPU=False):
         # check if the first 5 arguments are numpy arrays of the same 1D shape
         if not (isinstance(x_0, np.ndarray) and isinstance(px_0, np.ndarray) and
                 isinstance(y_0, np.ndarray) and isinstance(py_0, np.ndarray)):
@@ -17,306 +30,130 @@ class henon_tracker():
             raise ValueError("Arguments must be of the same shape.")     
         
         # check if system has a nvidia gpu available
-        GPU = is_cuda_device_available()
+        GPU = gpu_available()
         if force_CPU or not GPU:
-            self.engine = cpu_henon(x_0, px_0, y_0, py_0, omega_x, omega_y)
+            self.particles = particles_4d(x_0, px_0, y_0, py_0)
         else:
-            self.engine = gpu_henon(x_0, px_0, y_0, py_0, omega_x, omega_y)
-
+            self.particles = particles_4d_gpu(x_0, px_0, y_0, py_0)
+    
     def reset(self):
-        """Reset the tracker to the initial conditions.
-        """
-        self.engine.reset()
+        self.particles.reset()
 
-    def track(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-              kick_sigma=np.nan, inverse=False, modulation_kind="sps",
-              omega_0=np.nan):
-        """Track the system for n_turns turns.
+    def add_ghost(self, module, displacement_kind):
+        self.particles.add_ghost(module, displacement_kind)
 
-        Parameters
-        ----------
-        n_turns : unsigned int
-            number of turns to track
-        epsilon : float
-            intensity of the modulation
-        mu : float
-            intensity of the octupolar kick
-        barrier : float, optional
-            radial distance of the barrier, by default 10
-        kick_module : float, optional
-            if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        inverse : bool, optional
-            perform an inverse tracking if True, by default False
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
-        """
-        self.engine.track(n_turns, epsilon, mu, barrier * barrier, kick_module,
-                          kick_sigma, inverse, modulation_kind, omega_0)
+    def renormalize(self, module):
+        self.particles.renormalize(module)
 
-    def track_MEGNO(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                    kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
-        
-        # make sure that n_turns is a 1D sorted array
-        if not isinstance(n_turns, np.ndarray):
-            n_turns = np.asarray(n_turns)
-        
-        if n_turns.ndim != 1:
-            raise ValueError("n_turns must be a 1D array.")
+    def get_displacement_module(self):
+        return np.asarray(self.particles.get_displacement_module())
 
-        if not np.all(np.diff(n_turns) > 0):
-            raise ValueError("n_turns must be sorted in increasing order.")    
-
-        megno = self.engine.track_MEGNO(list(n_turns), epsilon, mu, barrier * barrier, False, kick_module, kick_sigma, modulation_kind, omega_0)
-        
-        return megno
-
-    def full_track(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                   kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan):
-        """Track the system for n_turns turns.
-
-        Parameters
-        ----------
-        n_turns : unsigned int
-            number of turns to track
-        epsilon : float
-            intensity of the modulation
-        mu : float
-            intensity of the octupolar kick
-        barrier : float, optional
-            radial distance of the barrier, by default 10
-        kick_module : float, optional
-            if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
-        """
-        x, px, y, py = self.engine.full_track(
-            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
-            modulation_kind, omega_0
-        )
-        return np.asarray(x), np.asarray(px), np.asarray(y), np.asarray(py)
-
-    def birkhoff_tunes(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                       kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan,
-                       from_idx=np.array([], dtype=np.int),
-                       to_idx=np.array([], dtype=np.int)):
-        """Track the system for n_turns turns and compute birkhoff tunes for the
-        given intervals in from and to ndarrays.
-
-        Parameters
-        ----------
-        n_turns : unsigned int
-            number of turns to track
-        epsilon : float
-            intensity of the modulation
-        mu : float
-            intensity of the octupolar kick
-        barrier : float, optional
-            radial distance of the barrier, by default 10
-        kick_module : float, optional
-            if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
-        from_idx : ndarray, optional
-            indices of the turns to start the birkhoff analysis, by default np.array([], dtype=np.int)
-        to_idx : ndarray, optional
-            indices of the turns to end the birkhoff analysis, by default np.array([], dtype=np.int)
-
-        Returns
-        -------
-        ndarray
-            birkhoff tunes for the given intervals in from and to ndarrays
-        """
-        # check if the arguments are of correct length
-        if not (len(from_idx) == len(to_idx)):
-            raise ValueError("Arguments must be of same length.")
-
-        result = self.engine.birkhoff_tunes(
-            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
-            modulation_kind, omega_0, from_idx, to_idx
-        )
-        result = np.asarray(result)
-
-        # Create an empty pandas dataframe
-        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
-        
-        for i in range(len(from_idx)):
-            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
-        # add a row to the dataframe
-        pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
-        return pd_result
-
-    def fft_tunes(self, n_turns, epsilon, mu, barrier=10.0, kick_module=np.nan,
-                  kick_sigma=np.nan, modulation_kind="sps", omega_0=np.nan,
-                  from_idx=np.array([], dtype=np.int),
-                  to_idx=np.array([], dtype=np.int)):
-        """Track the system for n_turns turns and compute fft tunes for the
-        given intervals in from and to ndarrays.
-
-        Parameters
-        ----------
-        n_turns : unsigned int
-            number of turns to track
-        epsilon : float
-            intensity of the modulation
-        mu : float
-            intensity of the octupolar kick
-        barrier : float, optional
-            radial distance of the barrier, by default 10
-        kick_module : float, optional
-            if desired, average of the kick for every turn, by default np.nan
-        kick_sigma : float, optional
-            if desired, standard deviation of the kick for every turn, by default np.nan
-        modulation_kind : str, optional
-            kind of modulation, either "sps" or "basic", by default "sps"
-        omega_0 : float, optional
-            modulation harmonic for "basic" option, by default np.nan
-        from_idx : ndarray, optional
-            indices of the turns to start the fft analysis, by default np.array([], dtype=np.int)
-        to_idx : ndarray, optional
-            indices of the turns to end the fft analysis, by default np.array([], dtype=np.int)
-
-        Returns
-        -------
-        ndarray
-            fft tunes for the given intervals in from and to ndarrays
-        """
-        # check if the arguments are of correct length
-        if not (len(from_idx) == len(to_idx)):
-            raise ValueError("Arguments must be of same length.")
-
-        result = self.engine.fft_tunes(
-            n_turns, epsilon, mu, barrier * barrier, kick_module, kick_sigma,
-            modulation_kind, omega_0, from_idx, to_idx
-        )
-        result = np.asarray(result)
-
-        # Create an empty pandas dataframe
-        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
-        
-        for i in range(len(from_idx)):
-            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
-        # add a row to the dataframe
-        pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
-        return pd_result
+    def get_displacement_direction(self):
+        return np.asarray(self.particles.get_displacement_direction())
 
     def get_x(self):
-        return np.asarray(self.engine.get_x())
-
+        return np.asarray(self.particles.get_x())
+    
     def get_px(self):
-        return np.asarray(self.engine.get_px())
-
+        return np.asarray(self.particles.get_px())
+    
     def get_y(self):
-        return np.asarray(self.engine.get_y())
-
+        return np.asarray(self.particles.get_y())
+    
     def get_py(self):
-        return np.asarray(self.engine.get_py())
-
-    def get_x0(self):
-        return np.asarray(self.engine.get_x0())
-
-    def get_px0(self):
-        return np.asarray(self.engine.get_px0())
-
-    def get_y0(self):
-        return np.asarray(self.engine.get_y0())
-
-    def get_py0(self):
-        return np.asarray(self.engine.get_py0())
+        return np.asarray(self.particles.get_py())
 
     def get_steps(self):
-        return np.asarray(self.engine.get_steps())
-        
-    def get_omega_x(self):
-        return self.engine.get_omega_x()
-
-    def get_omega_y(self):
-        return self.engine.get_omega_y()
-
-    def get_global_steps(self):
-        return self.engine.get_global_steps()
-
-    def set_x(self, x):
-        # check if the argument is a numpy array of the same 1D shape
-        if not (isinstance(x, np.ndarray)):
-            raise TypeError("Argument must be a numpy array.")
-        if not (x.ndim == 1):
-            raise ValueError("Argument must be a 1D array.")
-        if not (x.shape == self.engine.get_x().shape):
-            raise ValueError("Argument must be of the same shape.")
-        self.engine.set_x(x)
-
-    def set_px(self, px):
-        # check if the argument is a numpy array of the same 1D shape
-        if not (isinstance(px, np.ndarray)):
-            raise TypeError("Argument must be a numpy array.")
-        if not (px.ndim == 1):
-            raise ValueError("Argument must be a 1D array.")
-        if not (px.shape == self.engine.get_px().shape):
-            raise ValueError("Argument must be of the same shape.")
-        self.engine.set_px(px)
-
-    def set_y(self, y):
-        # check if the argument is a numpy array of the same 1D shape
-        if not (isinstance(y, np.ndarray)):
-            raise TypeError("Argument must be a numpy array.")
-        if not (y.ndim == 1):
-            raise ValueError("Argument must be a 1D array.")
-        if not (y.shape == self.engine.get_y().shape):
-            raise ValueError("Argument must be of the same shape.")
-        self.engine.set_y(y)
-
-    def set_py(self, py):
-        # check if the argument is a numpy array of the same 1D shape
-        if not (isinstance(py, np.ndarray)):
-            raise TypeError("Argument must be a numpy array.")
-        if not (py.ndim == 1):
-            raise ValueError("Argument must be a 1D array.")
-        if not (py.shape == self.engine.get_py().shape):
-            raise ValueError("Argument must be of the same shape.")
-        self.engine.set_py(py)
-
-    def set_omega_x(self, omega_x):
-        # check if the argument is a number
-        if not (isinstance(omega_x, (int, float))):
-            raise TypeError("Argument must be a number.")
-        self.engine.set_omega_x(omega_x)
-
-    def set_omega_y(self, omega_y):
-        # check if the argument is a number
-        if not (isinstance(omega_y, (int, float))):
-            raise TypeError("Argument must be a number.")
-        self.engine.set_omega_y(omega_y)
-
-    def set_global_steps(self, global_steps):
-        # check if the argument is a number
-        if not (isinstance(global_steps, (int, float))):
-            raise TypeError("Argument must be a number.")
-        self.engine.set_global_steps(global_steps)
-
-    def set_steps(self, steps):
-        # check if the argument is a numpy array of the same 1D shape
-        if (isinstance(steps, np.ndarray)):
-            if not (steps.ndim == 1):
-                raise ValueError("Argument must be a 1D array.")
-            if not (steps.shape == self.engine.get_steps().shape):
-                raise ValueError("Argument must be of the same shape.")
-        elif not (isinstance(steps, int)):
-            raise TypeError("Argument must be a numpy array or an integer.")
-        self.engine.set_steps(steps)
+        return np.asarray(self.particles.get_steps())
 
 
-        
+class matrix_4d_vector():
+    def __init__(self, N, force_cpu=False):
+        GPU = gpu_available()
+        if force_cpu or not GPU:
+            self.matrix = cpp_matrix_4d_vector(N)
+        else:
+            self.matrix = cpp_matrix_4d_vector_gpu(N)
 
-        
+    def reset(self):
+        self.matrix.reset()
+
+    def multiply(self, matrices):
+        self.matrix.multiply(matrices)
+
+    def structured_multiply(self, tracker, particles, mu):
+        self.matrix.structured_multiply(tracker.tracker, particles.particles, mu)
+
+    def get_matrix(self):
+        return np.asarray(self.matrix.get_matrix())
+    
+    def get_vector(self, vector):
+        return np.asarray(self.matrix.get_vector(vector))
+
+
+class henon_tracker():
+    def __init__(self, N, omega_x, omega_y, modulation_kind, omega_0=np.nan, epsilon=0.0, offset=0, force_CPU=False):
+        # check if system has a nvidia gpu available
+        GPU = gpu_available()
+        if force_CPU or not GPU:
+            self.tracker = cpp_henon_tracker(N, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset)
+        else:
+            print("creating gpu tracker")
+            self.tracker = cpp_henon_tracker_gpu(
+                N, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset)
+
+    def compute_a_modulation(self, n_turns, omega_x, omega_y, epsilon=0.0, modulation_kind="sps", omega_0=np.nan, offset=0):
+        self.tracker.compute_a_modulation(n_turns, omega_x, omega_y, modulation_kind, omega_0, epsilon, offset)
+
+    def track(self, particles, n_turns, mu, barrier=10.0, kick_module=np.nan, inverse=False):
+        self.tracker.track(particles.particles, n_turns, mu, barrier, kick_module, inverse)
+
+    def tune_birkhoff(self, particles, n_turns, mu, barrier=10.0, kick_module=np.nan, inverse=False, from_idx=np.array([]), to_idx=np.array([])):
+        result = np.asarray(self.tracker.birkhoff_tunes(particles.particles, n_turns, mu, barrier, kick_module, inverse, from_idx, to_idx))
+        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
+        for i in range(len(from_idx)):
+            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
+        # add a row to the dataframe
+        pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
+        return pd_result 
+
+    def get_tangent_matrix(self, particles, mu):
+        return np.asarray(self.tracker.get_tangent_matrix(particles.particles, mu))
+
+
+class storage():
+    def __init__(self, N):
+        self.storage = storage_4d(N)
+
+    def store(self, particles):
+        self.storage.store(particles.particles)
+    
+    def tune_fft(self, from_idx, to_idx, max_value):
+        result = np.asarray(self.storage.tune_fft(from_idx, to_idx))
+        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
+        for i in range(len(from_idx)):
+            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
+        # add a row to the dataframe
+        pd_result.loc[len(from_idx)] = [0, max_value, result[:, -2], result[:, -1]]
+        return pd_result
+
+    def tune_birkhoff(self, from_idx, to_idx, max_value):
+        result = np.asarray(self.storage.tune_birkhoff(from_idx, to_idx))
+        pd_result = pd.DataFrame(columns=["from", "to", "tune_x", "tune_y"])
+        for i in range(len(from_idx)):
+            pd_result.loc[i] = [from_idx[i], to_idx[i], result[:, i*2], result[:, i*2+1]]
+        # add a row to the dataframe
+        pd_result.loc[len(from_idx)] = [0, max_value, result[:, -2], result[:, -1]]
+        return pd_result 
+
+    def get_x(self):
+        return np.asarray(self.storage.get_x())
+
+    def get_px(self):
+        return np.asarray(self.storage.get_px())
+
+    def get_y(self):
+        return np.asarray(self.storage.get_y())
+
+    def get_py(self):
+        return np.asarray(self.storage.get_py())
