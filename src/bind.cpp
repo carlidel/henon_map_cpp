@@ -293,6 +293,7 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("compute_a_modulation", &henon_tracker_gpu::compute_a_modulation,
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
+        .def("track", &henon_tracker_gpu::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
         .def("get_tangent_matrix", &henon_tracker_gpu::get_tangent_matrix, "Get tangent matrix", py::arg("particles"), py::arg("mu"));
 
     py::class_<storage_4d>(m, "storage_4d")
