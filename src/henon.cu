@@ -152,16 +152,16 @@ std::vector<std::vector<double>> multiply_matrices(const std::vector<std::vector
     return matrix;
 }
 
-__global__ void get_matrices_and_multiply(double *matrices, const double *x, const double *px, const double *y, const double *py, const unsigned int *steps, const double *sx, const double *cx, const double *sy, const double *cy, const double mu, const size_t size)
+__global__ void get_matrices_and_multiply(double *matrices, const double *x, const double *px, const double *y, const double *py, const double *sx, const double *cx, const double *sy, const double *cy, const double &mu, const int &size)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     
-    if (idx >= size)
+    if (idx > size)
         return;
     
-    double tmp_matrix[16];
+    double *tmp_matrix = new double[16];
 
-    tangent_matrix(x[idx], px[idx], y[idx], py[idx], sx[steps[idx]], cx[steps[idx]], sy[steps[idx]], cy[steps[idx]], mu, tmp_matrix, 0);
+    tangent_matrix(x[idx], px[idx], y[idx], py[idx], sx[idx], cx[idx], sy[idx], cy[idx], mu, tmp_matrix, 0);
 
     // multiply tmp_matrix with matrices
     for (int i = 0; i < 4; i++)
@@ -176,6 +176,7 @@ __global__ void get_matrices_and_multiply(double *matrices, const double *x, con
         }
     }
 
+    delete[] tmp_matrix;
 }
 
 
@@ -1327,18 +1328,16 @@ matrix_4d_vector_gpu::~matrix_4d_vector_gpu()
 
 void matrix_4d_vector_gpu::reset()
 {
-    // reset to identity matricesstd::vector<double> matrix_flattened(N * 16, 0.0);
-    std::vector<double> matrix_flattened(N * 16, 0.0);
-
-    for (size_t i = 0; i < N; i++)
+    // reset to identity matrices
+    std::vector<double> matrix_flattened(matrix_flattened.size(), 0.0);
+    for (size_t i = 0; i < matrix_flattened.size(); i += 16)
     {
-        matrix_flattened[i * 16 + 0] = 1.0;
-        matrix_flattened[i * 16 + 5] = 1.0;
-        matrix_flattened[i * 16 + 10] = 1.0;
-        matrix_flattened[i * 16 + 15] = 1.0;
+        matrix_flattened[i + 0] = 1.0;
+        matrix_flattened[i + 5] = 1.0;
+        matrix_flattened[i + 10] = 1.0;
+        matrix_flattened[i + 15] = 1.0;
     }
 
-    // allocate memory on GPU
     cudaMemcpy(d_matrix, matrix_flattened.data(), matrix_flattened.size() * sizeof(double), cudaMemcpyHostToDevice);
 }
 
@@ -1346,8 +1345,7 @@ void matrix_4d_vector_gpu::structured_multiply(const henon_tracker_gpu &tracker,
 {
     get_matrices_and_multiply<<<n_blocks, 512>>>(
         d_matrix,
-        particles.d_x, particles.d_px, particles.d_y, particles.d_py,
-        particles.d_steps, 
+        particles.d_x, particles.d_px, particles.d_y, particles.d_py, 
         tracker.d_omega_x_sin, tracker.d_omega_x_cos,
         tracker.d_omega_y_sin, tracker.d_omega_y_cos,
         mu, N);

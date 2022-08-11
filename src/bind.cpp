@@ -175,17 +175,50 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("renormalize", &particles_4d::renormalize, py::arg("module_target"))
         .def("get_displacement_module", &particles_4d::get_displacement_module)
         .def("get_displacement_direction", &particles_4d::get_displacement_direction)
-        .def("get_x", &particles_4d::get_x)
-        .def("get_px", &particles_4d::get_px)
-        .def("get_y", &particles_4d::get_y)
-        .def("get_py", &particles_4d::get_py)
-        .def("get_steps", &particles_4d::get_steps)
-        .def("get_valid", &particles_4d::get_valid)
-        .def("get_ghost", &particles_4d::get_ghost)
-        .def("get_idx", &particles_4d::get_idx)
-        .def("get_idx_base", &particles_4d::get_idx_base)
-        .def("get_n_particles", &particles_4d::get_n_particles)
-        .def("get_n_ghosts_per_particle", &particles_4d::get_n_ghosts_per_particle);
+        .def("get_x", [](particles_4d &self){
+            py::array out = py::cast(self.get_x());
+            return out;
+            })
+        .def("get_px",  [](particles_4d &self){
+            py::array out = py::cast(self.get_px());
+            return out;
+            })
+        .def("get_y",  [](particles_4d &self){
+            py::array out = py::cast(self.get_y());
+            return out;
+            })
+        .def("get_py",  [](particles_4d &self){
+            py::array out = py::cast(self.get_py());
+            return out;
+            })
+        .def("get_steps",  [](particles_4d &self){
+            py::array out = py::cast(self.get_steps());
+            return out;
+            })
+        .def("get_valid",  [](particles_4d &self){
+            py::array out = py::cast(self.get_valid());
+            return out;
+            })
+        .def("get_ghost",  [](particles_4d &self){
+            py::array out = py::cast(self.get_ghost());
+            return out;
+            })
+        .def("get_idx",  [](particles_4d &self){
+            py::array out = py::cast(self.get_idx());
+            return out;
+            })
+        .def("get_idx_base",  [](particles_4d &self){
+            py::array out = py::cast(self.get_idx_base());
+            return out;
+            })
+        .def("get_n_particles",  [](particles_4d &self){
+            py::array out = py::cast(self.get_n_particles());
+            return out;
+            })
+        .def("get_n_ghosts_per_particle",  [](particles_4d &self){
+            py::array out = py::cast(self.get_n_ghosts_per_particle());
+            return out;
+            });
 
     py::class_<matrix_4d_vector>(m, "matrix_4d_vector")
         .def(py::init<size_t>())
@@ -197,15 +230,29 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("structured_multiply",
              static_cast<void (matrix_4d_vector::*)(const henon_tracker &, const particles_4d &, const double &)>(&matrix_4d_vector::structured_multiply),
              py::arg("tracker"), py::arg("particles"), py::arg("mu"))
-        .def("get_matrix", &matrix_4d_vector::get_matrix)
-        .def("get_vector", &matrix_4d_vector::get_vector, py::arg("vector"));
+        .def("get_matrix", [](matrix_4d_vector &self)
+             {
+            py::array out = py::cast(self.get_matrix());
+            return out; })
+        .def(
+            "get_vector", [](matrix_4d_vector &self, const std::vector<std::vector<double>> &vector)
+            {
+            py::array out = py::cast(self.get_vector(vector));
+            return out; },
+            py::arg("vector"));
 
     py::class_<matrix_4d_vector_gpu>(m, "matrix_4d_vector_gpu")
         .def(py::init<size_t>())
         .def("reset", &matrix_4d_vector_gpu::reset)
         .def("structured_multiply", &matrix_4d_vector_gpu::structured_multiply, py::arg("tracker"), py::arg("particles"), py::arg("mu"))
-        .def("get_matrix", &matrix_4d_vector_gpu::get_matrix)
-        .def("get_vector", &matrix_4d_vector_gpu::get_vector, py::arg("vector"));
+        .def("get_matrix", [](matrix_4d_vector_gpu &self){
+            py::array out = py::cast(self.get_matrix());
+            return out;
+            })
+        .def("get_vector", [](matrix_4d_vector_gpu &self, const std::vector<std::vector<double>> &vector){
+            py::array out = py::cast(self.get_vector(vector));
+            return out;
+            }, py::arg("vector"));
 
     py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")
         .def(py::init<
@@ -228,7 +275,11 @@ PYBIND11_MODULE(henon_map_engine, m)
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
         .def("track", &henon_tracker::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
         .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
-        .def("get_tangent_matrix", &henon_tracker::get_tangent_matrix, "get tangent matrix", py::arg("particles"), py::arg("mu"));
+        .def("get_tangent_matrix", [](henon_tracker &self, const particles_4d &particles, const double &mu){
+            py::array out = py::cast(self.get_tangent_matrix(particles, mu));
+            return out;
+            }
+            , "Get tangent matrix", py::arg("particles"), py::arg("mu"));
 
     py::class_<henon_tracker_gpu, py_henon_tracker_gpu>(m, "henon_tracker_gpu")
         .def(py::init<
@@ -242,7 +293,6 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("compute_a_modulation", &henon_tracker_gpu::compute_a_modulation,
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
-        .def("track", &henon_tracker_gpu::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
         .def("get_tangent_matrix", &henon_tracker_gpu::get_tangent_matrix, "Get tangent matrix", py::arg("particles"), py::arg("mu"));
 
     py::class_<storage_4d>(m, "storage_4d")
