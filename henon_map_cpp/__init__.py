@@ -75,10 +75,13 @@ class particles:
 
 class matrix_4d_vector:
     def __init__(self, N, force_cpu=False):
-        GPU = gpu_available()
-        if force_cpu or not GPU:
+        self.GPU = gpu_available()
+        if force_cpu or not self.GPU:
+            print("Using CPU")
             self.matrix = cpp_matrix_4d_vector(N)
+            self.GPU = False
         else:
+            print("Using GPU")
             self.matrix = cpp_matrix_4d_vector_gpu(N)
 
     def reset(self):
@@ -87,8 +90,11 @@ class matrix_4d_vector:
     def multiply(self, matrices):
         self.matrix.multiply(matrices)
 
-    def structured_multiply(self, tracker, particles, mu):
-        self.matrix.structured_multiply(tracker.tracker, particles.particles, mu)
+    def structured_multiply(self, tracker, particles, mu, reverse=False):
+        if self.GPU:
+            self.matrix.structured_multiply(tracker.tracker, particles.particles, mu)
+        else:
+            self.matrix.structured_multiply(tracker.tracker, particles.particles, mu, reverse)
 
     def get_matrix(self):
         return np.asarray(self.matrix.get_matrix())
@@ -177,8 +183,8 @@ class henon_tracker:
         pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
         return pd_result
 
-    def get_tangent_matrix(self, particles, mu):
-        return self.tracker.get_tangent_matrix(particles.particles, mu)
+    def get_tangent_matrix(self, particles, mu, reverse=False):
+        return self.tracker.get_tangent_matrix(particles.particles, mu, reverse)
 
 
 class storage:

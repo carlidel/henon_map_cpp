@@ -136,6 +136,33 @@ __host__ std::vector<std::vector<double>> tangent_matrix(const double &x, const 
     return matrix;
 }
 
+__host__ std::vector<std::vector<double>> inverse_tangent_matrix(const double &x, const double &px, const double &y, const double &py, const double &sx, const double &cx, const double &sy, const double &cy, const double &mu)
+{
+    std::vector<std::vector<double>> matrix(4, std::vector<double>(4, 0.0));
+
+    matrix[0][0] = cx;
+    matrix[0][1] = -sx;
+    matrix[0][2] = 0;
+    matrix[0][3] = 0;
+
+    matrix[1][0] = -3 * cx * mu * (pow(cx * x - px * sx, 2) - pow(cy * y - py * sy, 2)) - 2 * cx * (cx * x - px * sx) + sx;
+    matrix[1][1] = cx + 3 * mu * sx * (pow(cx * x - px * sx, 2) - pow(cy * y - py * sy, 2)) + 2 * sx * (cx * x - px * sx);
+    matrix[1][2] = 2 * cy * (cy * y - py * sy) * (3 * mu * (cx * x - px * sx) + 1);
+    matrix[1][3] = 2 * sy * (cy * y - py * sy) * (-3 * mu * (cx * x - px * sx) - 1);
+
+    matrix[2][0] = 0;
+    matrix[2][1] = 0;
+    matrix[2][2] = cy;
+    matrix[2][3] = -sy;
+
+    matrix[3][0] = 2 * cx * (cy * y - py * sy) * (3 * mu * (cx * x - px * sx) + 1);
+    matrix[3][1] = 2 * sx * (cy * y - py * sy) * (-3 * mu * (cx * x - px * sx) - 1);
+    matrix[3][2] = 3 * cy * mu * (pow(cx * x - px * sx, 2) - pow(cy * y - py * sy, 2)) + 2 * cy * (cx * x - px * sx) + sy;
+    matrix[3][3] = cy - 3 * mu * sy * (pow(cx * x - px * sx, 2) - pow(cy * y - py * sy, 2)) - 2 * sy * (cx * x - px * sx);
+
+    return matrix;
+}
+
 std::vector<std::vector<double>> multiply_matrices(const std::vector<std::vector<double>> &matrix1, const std::vector<std::vector<double>> &matrix2)
 {
     std::vector<std::vector<double>> matrix(4, std::vector<double>(4, 0.0));
@@ -152,33 +179,35 @@ std::vector<std::vector<double>> multiply_matrices(const std::vector<std::vector
     return matrix;
 }
 
-__global__ void get_matrices_and_multiply(double *matrices, const double *x, const double *px, const double *y, const double *py, const double *sx, const double *cx, const double *sy, const double *cy, const double &mu, const int &size)
+__global__ void get_matrices_and_multiply(double *matrices, const double *x, const double *px, const double *y, const double *py, const double *sx, const double *cx, const double *sy, const double *cy, const double mu, const unsigned int global_steps, const int size)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    if (idx > size)
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx >= size)
         return;
     
-    double *tmp_matrix = new double[16];
+    double tmp_matrix[16];
+    double result_matrix[16];
 
-    tangent_matrix(x[idx], px[idx], y[idx], py[idx], sx[idx], cx[idx], sy[idx], cy[idx], mu, tmp_matrix, 0);
+    tangent_matrix(x[idx], px[idx], y[idx], py[idx], sx[global_steps], cx[global_steps], sy[global_steps], cy[global_steps], mu, tmp_matrix, 0);
 
-    // multiply tmp_matrix with matrices
     for (int i = 0; i < 4; i++)
     {
         for (int j = 0; j < 4; j++)
         {
-            matrices[idx * 16 + i * 4 + j] = 0.0;
+            result_matrix[i * 4 + j] = 0.0;
             for (int k = 0; k < 4; k++)
             {
-                matrices[idx * 16 + i * 4 + j] += tmp_matrix[i * 4 + k] * matrices[idx * 16 + k * 4 + j];
+                result_matrix[i * 4 + j] += tmp_matrix[i * 4 + k] * matrices[idx * 16 + k * 4 + j];
             }
         }
     }
-
-    delete[] tmp_matrix;
+    // copy result matrix to global memory
+    for (int i = 0; i < 16; i++)
+    {
+        matrices[idx * 16 + i] = result_matrix[i];
+    }
 }
-
 
 
 
@@ -1257,16 +1286,16 @@ void matrix_4d_vector::multiply(const std::vector<std::vector<std::vector<double
     }
 }
 
-void matrix_4d_vector::structured_multiply(const henon_tracker &tracker, const particles_4d &particles, const double &mu)
+void matrix_4d_vector::structured_multiply(const henon_tracker &tracker, const particles_4d &particles, const double &mu, const bool &reverse)
 {
     return multiply(
-        tracker.get_tangent_matrix(particles, mu));
+        tracker.get_tangent_matrix(particles, mu, reverse));
 }
 
-void matrix_4d_vector::structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu)
+void matrix_4d_vector::structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu, const bool &reverse)
 {
     return multiply(
-        tracker.get_tangent_matrix(particles, mu));
+        tracker.get_tangent_matrix(particles, mu, reverse));
 }
 
 const std::vector<std::vector<std::vector<double>>> &matrix_4d_vector::get_matrix() const
@@ -1348,7 +1377,7 @@ void matrix_4d_vector_gpu::structured_multiply(const henon_tracker_gpu &tracker,
         particles.d_x, particles.d_px, particles.d_y, particles.d_py, 
         tracker.d_omega_x_sin, tracker.d_omega_x_cos,
         tracker.d_omega_y_sin, tracker.d_omega_y_cos,
-        mu, N);
+        mu, particles.global_steps, N);
 }
 
 std::vector<std::vector<double>> matrix_4d_vector_gpu::get_vector(const std::vector<std::vector<double>> &rv) const
@@ -1618,7 +1647,7 @@ std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &par
     return result_vec;
 }
 
-std::vector<std::vector<std::vector<double>>> henon_tracker::get_tangent_matrix(const particles_4d &particles, const double &mu) const
+std::vector<std::vector<std::vector<double>>> henon_tracker::get_tangent_matrix(const particles_4d &particles, const double &mu, const bool &reverse) const
 {
     auto x = particles.get_x();
     auto px = particles.get_px();
@@ -1634,7 +1663,14 @@ std::vector<std::vector<std::vector<double>>> henon_tracker::get_tangent_matrix(
     {
         if (valid[i])
         {
-            result[i] = tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+            if (!reverse)
+            {
+                result[i] = tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+            }
+            else
+            {
+                result[i] = inverse_tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+            }
         }
         else
         {
@@ -1718,7 +1754,7 @@ void henon_tracker_gpu::track(particles_4d_gpu &particles, unsigned int n_turns,
         particles.global_steps -= n_turns;
 }
 
-std::vector<std::vector<std::vector<double>>> henon_tracker_gpu::get_tangent_matrix(const particles_4d_gpu &particles, const double &mu) const
+std::vector<std::vector<std::vector<double>>> henon_tracker_gpu::get_tangent_matrix(const particles_4d_gpu &particles, const double &mu, const bool &reverse) const
 {
     auto x = particles.get_x();
     auto px = particles.get_px();
@@ -1734,7 +1770,14 @@ std::vector<std::vector<std::vector<double>>> henon_tracker_gpu::get_tangent_mat
     {
         if (valid[i])
         {
-            result[i] = tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+            if (!reverse)
+            {
+                result[i] = tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+            }
+            else
+            {
+                result[i] = inverse_tangent_matrix(x[i], px[i], y[i], py[i], omega_x_sin[steps], omega_x_cos[steps], omega_y_sin[steps], omega_y_cos[steps], mu);
+            }
         }
         else
         {

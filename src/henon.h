@@ -177,7 +177,7 @@ public:
 
     std::vector<std::vector<double>> birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
 
-    std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d &particles, const double &mu) const;
+    std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d &particles, const double &mu, const bool &reverse) const;
 };
 
 class henon_tracker_gpu : public henon_tracker
@@ -198,7 +198,7 @@ public:
 
     void track(particles_4d_gpu &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
 
-    std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d_gpu &particles, const double &mu) const;
+    std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d_gpu &particles, const double &mu, const bool &reverse) const;
 };
 
 struct matrix_4d_vector
@@ -209,8 +209,8 @@ struct matrix_4d_vector
 
     void reset();
     void multiply(const std::vector<std::vector<std::vector<double>>> &l_matrix);
-    void structured_multiply(const henon_tracker &tracker, const particles_4d &particles, const double &mu);
-    void structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
+    void structured_multiply(const henon_tracker &tracker, const particles_4d &particles, const double &mu, const bool &reverse);
+    void structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu, const bool &reverse);
 
     const std::vector<std::vector<std::vector<double>>> &get_matrix() const;
     std::vector<std::vector<double>> get_vector(const std::vector<std::vector<double>> &rv) const;
