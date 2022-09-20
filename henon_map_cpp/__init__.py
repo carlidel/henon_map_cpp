@@ -5,9 +5,12 @@ import pandas as pd
 from .henon_map_engine import birkhoff_weights as cpp_birkhoff_weights
 from .henon_map_engine import henon_tracker as cpp_henon_tracker
 from .henon_map_engine import henon_tracker_gpu as cpp_henon_tracker_gpu
+from .henon_map_engine import lyapunov_birkhoff_construct as lbc
 from .henon_map_engine import matrix_4d_vector as cpp_matrix_4d_vector
 from .henon_map_engine import matrix_4d_vector_gpu as cpp_matrix_4d_vector_gpu
 from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d
+from .henon_map_engine import storage_4d_gpu as cpp_storage_4d_gpu
+from .henon_map_engine import vector_4d_gpu
 
 # from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
 
@@ -96,11 +99,60 @@ class matrix_4d_vector:
         else:
             self.matrix.structured_multiply(tracker.tracker, particles.particles, mu, reverse)
 
+    def set_with_tracker(self, tracker, particles, mu, reverse=False):
+        if self.GPU:
+            self.matrix.set_with_tracker(tracker.tracker, particles.particles, mu)
+        else:
+            # not implemented...
+            raise NotImplementedError
+
     def get_matrix(self):
         return np.asarray(self.matrix.get_matrix())
 
     def get_vector(self, vector):
         return np.asarray(self.matrix.get_vector(vector))
+
+
+class vector_4d:
+    def __init__(self, initial_vector):
+        assert(gpu_available())
+        self.vector = vector_4d_gpu(initial_vector)
+
+    def set_vectors(self, vector):
+        self.vector.set_vectors(vector)
+
+    def multiply(self, matrix: matrix_4d_vector):
+        self.vector.multiply(matrix.matrix)
+
+    def normalize(self):
+        self.vector.normalize()
+
+    def get_vectors(self):
+        return np.asarray(self.vector.get_vectors())
+
+
+class lyapunov_birkhoff_construct:
+    def __init__(self, n, n_weights):
+        assert(gpu_available())
+        self.construct = lbc(n, n_weights)
+
+    def reset(self):
+        self.construct.reset()
+    
+    def change_weights(self, n_weights):
+        self.construct.change_weights(n_weights)
+
+    def add(self, vectors):
+        self.construct.add(vectors.vector)
+
+    def get_weights(self):
+        return np.asarray(self.construct.get_weights())
+
+    def get_values_raw(self):
+        return np.asarray(self.construct.get_values_raw())
+
+    def get_values_b(self):
+        return np.asarray(self.construct.get_values_b())
 
 
 class henon_tracker:
@@ -221,6 +273,29 @@ class storage:
         # add a row to the dataframe
         pd_result.loc[len(from_idx)] = [0, max_value, result[:, -2], result[:, -1]]
         return pd_result
+
+    def get_x(self):
+        return np.asarray(self.storage.get_x())
+
+    def get_px(self):
+        return np.asarray(self.storage.get_px())
+
+    def get_y(self):
+        return np.asarray(self.storage.get_y())
+
+    def get_py(self):
+        return np.asarray(self.storage.get_py())
+
+
+class storage_gpu:
+    def __init__(self, N, batch_size):
+        self.storage = cpp_storage_4d_gpu(N, batch_size)
+
+    def store(self, particles):
+        self.storage.store(particles.particles)
+
+    def reset(self):
+        self.storage.reset()
 
     def get_x(self):
         return np.asarray(self.storage.get_x())

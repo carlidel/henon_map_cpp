@@ -209,6 +209,69 @@ __global__ void get_matrices_and_multiply(double *matrices, const double *x, con
     }
 }
 
+__global__ void get_matrices_and_set(double *matrices, const double *x, const double *px, const double *y, const double *py, const double *sx, const double *cx, const double *sy, const double *cy, const double mu, const unsigned int global_steps, const int size)
+{
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx >= size)
+        return;
+    
+    double tmp_matrix[16];
+
+    tangent_matrix(x[idx], px[idx], y[idx], py[idx], sx[global_steps], cx[global_steps], sy[global_steps], cy[global_steps], mu, tmp_matrix, 0);
+
+    // copy result matrix to global memory
+    for (int i = 0; i < 16; i++)
+    {
+        matrices[idx * 16 + i] = tmp_matrix[i];
+    }
+}
+
+
+__global__ void matrix_vector_multiply(const double *matrices, double *vectors, const size_t size)
+{
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx >= size)
+        return;
+
+    double tmp_vector[4];
+
+    for (int i = 0; i < 4; i++)
+    {
+        tmp_vector[i] = 0.0;
+        for (int j = 0; j < 4; j++)
+        {
+            tmp_vector[i] += matrices[idx * 16 + i * 4 + j] * vectors[idx * 4 + j];
+        }
+    }
+
+    for (int i = 0; i < 4; i++)
+    {
+        vectors[idx * 4 + i] = tmp_vector[i];
+    }
+}
+
+
+__global__ void normalize_vectors(double *vectors, const size_t size)
+{
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx >= size)
+        return;
+
+    double norm = 0.0;
+    for (int i = 0; i < 4; i++)
+    {
+        norm += vectors[idx * 4 + i] * vectors[idx * 4 + i];
+    }
+    norm = sqrt(norm);
+
+    for (int i = 0; i < 4; i++)
+    {
+        vectors[idx * 4 + i] /= norm;
+    }
+}
 
 
 __host__ void random_4d_kick(double &x, double &px, double &y, double &py, const double &kick_module, std::mt19937_64 &generator)
@@ -1380,6 +1443,16 @@ void matrix_4d_vector_gpu::structured_multiply(const henon_tracker_gpu &tracker,
         mu, particles.global_steps, N);
 }
 
+void matrix_4d_vector_gpu::set_with_tracker(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu)
+{
+    get_matrices_and_set<<<n_blocks, 512>>>(
+        d_matrix,
+        particles.d_x, particles.d_px, particles.d_y, particles.d_py, 
+        tracker.d_omega_x_sin, tracker.d_omega_x_cos,
+        tracker.d_omega_y_sin, tracker.d_omega_y_cos,
+        mu, particles.global_steps, N);
+}
+
 std::vector<std::vector<double>> matrix_4d_vector_gpu::get_vector(const std::vector<std::vector<double>> &rv) const
 {
     std::vector<double> matrix_flattened(N * 16, 0.0);
@@ -1473,6 +1546,189 @@ const std::vector<std::vector<std::vector<double>>> matrix_4d_vector_gpu::get_ma
 
     return matrix;
 }
+
+vector_4d_gpu::vector_4d_gpu(const std::vector<std::vector<double>> &vectors)
+{
+    N = vectors.size();
+    n_blocks = (N + 512 - 1) / 512;
+
+    // flatten the vector
+    std::vector<double> vectors_flattened(N * 4, 0.0);
+
+    for (size_t i = 0; i < N; i++)
+    {
+        vectors_flattened[i * 4 + 0] = vectors[i][0];
+        vectors_flattened[i * 4 + 1] = vectors[i][1];
+        vectors_flattened[i * 4 + 2] = vectors[i][2];
+        vectors_flattened[i * 4 + 3] = vectors[i][3];
+    }
+
+    // allocate memory on GPU
+    cudaMalloc(&d_vectors, N * 4 * sizeof(double));
+
+    // copy vectors from CPU to GPU
+    cudaMemcpy(d_vectors, vectors_flattened.data(), N * 4 * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+vector_4d_gpu::~vector_4d_gpu()
+{
+    cudaFree(d_vectors);
+}
+
+void vector_4d_gpu::set_vectors(const std::vector<std::vector<double>> &vectors)
+{
+    // flatten the vector
+    std::vector<double> vectors_flattened(N * 4, 0.0);
+
+    for (size_t i = 0; i < N; i++)
+    {
+        vectors_flattened[i * 4 + 0] = vectors[i][0];
+        vectors_flattened[i * 4 + 1] = vectors[i][1];
+        vectors_flattened[i * 4 + 2] = vectors[i][2];
+        vectors_flattened[i * 4 + 3] = vectors[i][3];
+    }
+    // copy vectors from CPU to GPU
+    cudaMemcpy(d_vectors, vectors_flattened.data(), N * 4 * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+void vector_4d_gpu::set_vectors(const std::vector<double> &vectors)
+{
+    // clone the vector over the flattened vector
+    std::vector<double> vectors_flattened(N * 4, 0.0);
+
+    for (size_t i = 0; i < N; i++)
+    {
+        vectors_flattened[i * 4 + 0] = vectors[0];
+        vectors_flattened[i * 4 + 1] = vectors[1];
+        vectors_flattened[i * 4 + 2] = vectors[2];
+        vectors_flattened[i * 4 + 3] = vectors[3];
+    }
+
+    // copy vectors from CPU to GPU
+    cudaMemcpy(d_vectors, vectors_flattened.data(), N * 4 * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+void vector_4d_gpu::multiply(const matrix_4d_vector_gpu &matrix)
+{
+    // multiply matrix with vectors
+    matrix_vector_multiply<<<n_blocks, 512>>>(matrix.d_matrix, d_vectors, N);
+}
+
+void vector_4d_gpu::normalize()
+{
+    // normalize vectors
+    normalize_vectors<<<n_blocks, 512>>>(d_vectors, N);
+}
+
+const std::vector<std::vector<double>> vector_4d_gpu::get_vectors() const
+{
+    std::vector<double> vectors_flattened(N * 4, 0.0);
+
+    // copy vectors from GPU to CPU
+    cudaMemcpy(vectors_flattened.data(), d_vectors, N * 4 * sizeof(double), cudaMemcpyDeviceToHost);
+
+    std::vector<std::vector<double>> vectors(N, std::vector<double>(4, 0.0));
+
+    for (size_t i = 0; i < N; i++)
+    {
+        vectors[i][0] = vectors_flattened[i * 4 + 0];
+        vectors[i][1] = vectors_flattened[i * 4 + 1];
+        vectors[i][2] = vectors_flattened[i * 4 + 2];
+        vectors[i][3] = vectors_flattened[i * 4 + 3];
+    }
+
+    return vectors;
+}
+
+
+lyapunov_birkhoff_construct::lyapunov_birkhoff_construct(size_t _N, size_t _n_weights): N(_N), n_weights(_n_weights), idx(0)
+{
+    n_blocks = (N + 512 - 1) / 512;
+
+    auto birkhoff = birkhoff_weights(n_weights);
+    // copy birkhoff to GPU
+    cudaMalloc(&d_birkhoff, n_weights * sizeof(double));
+    cudaMemcpy(d_birkhoff, birkhoff.data(), n_weights * sizeof(double), cudaMemcpyHostToDevice);
+
+    // create a zero filled vector on GPU of size N
+    cudaMalloc(&d_vector, N * sizeof(double));
+    cudaMemset(d_vector, 0.0, N * sizeof(double));
+
+    cudaMalloc(&d_vector_b, N * sizeof(double));
+    cudaMemset(d_vector_b, 0.0, N * sizeof(double));
+}
+
+lyapunov_birkhoff_construct::~lyapunov_birkhoff_construct()
+{
+    cudaFree(d_birkhoff);
+    cudaFree(d_vector);
+    cudaFree(d_vector_b);
+}
+
+void lyapunov_birkhoff_construct::reset()
+{
+    idx = 0;
+    cudaMemset(d_vector, 0.0, N * sizeof(double));
+    cudaMemset(d_vector_b, 0.0, N * sizeof(double));
+}
+void lyapunov_birkhoff_construct::change_weights(size_t _n_weights)
+{
+    n_weights = _n_weights;
+    auto birkhoff = birkhoff_weights(n_weights);
+    // remove old weights
+    cudaFree(d_birkhoff);
+    // copy birkhoff to GPU
+    cudaMalloc(&d_birkhoff, n_weights * sizeof(double));
+    cudaMemcpy(d_birkhoff, birkhoff.data(), n_weights * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+__global__ void kernel_lyap_birk(double *values, double *values_b, const double *vectors, const double *weights, size_t size, size_t n_weights, size_t b_idx)
+{
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size)
+        return;
+
+    double norm = 0.0;
+    for (size_t i = 0; i < 4; i++)
+    {
+        norm += vectors[idx*4 + i] * vectors[idx*4 + i];
+    }
+    norm = sqrt(norm);
+    
+    values[idx] += log(norm) / n_weights;
+    values_b[idx] += log(norm) * weights[b_idx];
+}
+
+void lyapunov_birkhoff_construct::add(const vector_4d_gpu &vectors)
+{
+    // add vectors to lyapunov
+    kernel_lyap_birk<<<n_blocks, 512>>>(d_vector, d_vector_b, vectors.d_vectors, d_birkhoff, N, n_weights, idx);
+    idx++;
+}
+
+std::vector<double> lyapunov_birkhoff_construct::get_weights() const
+{
+    std::vector<double> weights(n_weights, 0.0);
+    cudaMemcpy(weights.data(), d_birkhoff, n_weights * sizeof(double), cudaMemcpyDeviceToHost);
+    return weights;
+}
+
+std::vector<double> lyapunov_birkhoff_construct::get_values_raw() const
+{
+    std::vector<double> values(N, 0.0);
+    // copy values from GPU to CPU
+    cudaMemcpy(values.data(), d_vector, N * sizeof(double), cudaMemcpyDeviceToHost);
+    return values;
+}
+
+std::vector<double> lyapunov_birkhoff_construct::get_values_b() const
+{
+    std::vector<double> values(N, 0.0);
+    // copy values from GPU to CPU
+    cudaMemcpy(values.data(), d_vector_b, N * sizeof(double), cudaMemcpyDeviceToHost);
+    return values;
+}
+
 
 void henon_tracker::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
 { 
@@ -1916,4 +2172,118 @@ const std::vector<std::vector<double>> &storage_4d::get_y() const
 const std::vector<std::vector<double>> &storage_4d::get_py() const
 {
     return py;
+}
+
+storage_4d_gpu::storage_4d_gpu(size_t _N, size_t _batch_size)
+{
+    N = _N;
+    batch_size = _batch_size;
+    n_blocks = (N + 1023) / 1024;
+    idx = 0;
+    // allocate memory
+    cudaMalloc(&d_x, N * batch_size * sizeof(double));
+    cudaMalloc(&d_px, N * batch_size * sizeof(double));
+    cudaMalloc(&d_y, N * batch_size * sizeof(double));
+    cudaMalloc(&d_py, N * batch_size * sizeof(double));
+    // set all to NaN
+    cudaMemset(d_x, 0, N * batch_size * sizeof(double));
+    cudaMemset(d_px, 0, N * batch_size * sizeof(double));
+    cudaMemset(d_y, 0, N * batch_size * sizeof(double));
+    cudaMemset(d_py, 0, N * batch_size * sizeof(double));
+}
+
+storage_4d_gpu::~storage_4d_gpu()
+{
+    cudaFree(d_x);
+    cudaFree(d_px);
+    cudaFree(d_y);
+    cudaFree(d_py);
+}
+
+void storage_4d_gpu::store(const particles_4d_gpu &particles)
+{
+    cudaMemcpy(d_x + idx * N, particles.d_x, N * sizeof(double), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_px + idx * N, particles.d_px, N * sizeof(double), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_y + idx * N, particles.d_y, N * sizeof(double), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_py + idx * N, particles.d_py, N * sizeof(double), cudaMemcpyDeviceToDevice);
+
+    idx++;
+}
+
+void storage_4d_gpu::reset()
+{
+    idx = 0;
+    // set all to NaN
+    cudaMemset(d_x, 0, N * batch_size * sizeof(double));
+    cudaMemset(d_px, 0, N * batch_size * sizeof(double));
+    cudaMemset(d_y, 0, N * batch_size * sizeof(double));
+    cudaMemset(d_py, 0, N * batch_size * sizeof(double));
+}
+
+const std::vector<std::vector<double>> storage_4d_gpu::get_x() const
+{
+    std::vector<std::vector<double>> result(batch_size, std::vector<double>(N));
+    std::vector<double> temp(N * batch_size, 0);
+    cudaMemcpy(temp.data(), d_x, N * batch_size * sizeof(double), cudaMemcpyDeviceToHost);
+    
+    for (unsigned int i = 0; i < batch_size; i++)
+    {
+        for (unsigned int j = 0; j < N; j++)
+        {
+            result[i][j] = temp[i * N + j];
+        }
+    }
+
+    return result;
+}
+
+const std::vector<std::vector<double>> storage_4d_gpu::get_px() const
+{
+    std::vector<std::vector<double>> result(batch_size, std::vector<double>(N));
+    std::vector<double> temp(N * batch_size, 0);
+    cudaMemcpy(temp.data(), d_px, N * batch_size * sizeof(double), cudaMemcpyDeviceToHost);
+    
+    for (unsigned int i = 0; i < batch_size; i++)
+    {
+        for (unsigned int j = 0; j < N; j++)
+        {
+            result[i][j] = temp[i * N + j];
+        }
+    }
+
+    return result;
+}
+
+const std::vector<std::vector<double>> storage_4d_gpu::get_y() const
+{
+    std::vector<std::vector<double>> result(batch_size, std::vector<double>(N));
+    std::vector<double> temp(N * batch_size, 0);
+    cudaMemcpy(temp.data(), d_y, N * batch_size * sizeof(double), cudaMemcpyDeviceToHost);
+    
+    for (unsigned int i = 0; i < batch_size; i++)
+    {
+        for (unsigned int j = 0; j < N; j++)
+        {
+            result[i][j] = temp[i * N + j];
+        }
+    }
+
+    return result;
+}
+
+const std::vector<std::vector<double>> storage_4d_gpu::get_py() const
+{
+    std::vector<std::vector<double>> result(batch_size, std::vector<double>(N));
+    std::vector<double> temp(N * batch_size, 0);
+    cudaMemcpy(temp.data(), d_py, N * batch_size * sizeof(double), cudaMemcpyDeviceToHost);
+    
+    for (unsigned int i = 0; i < batch_size; i++)
+    {
+        for (unsigned int j = 0; j < N; j++)
+        {
+            result[i][j] = temp[i * N + j];
+        }
+    }
+
+    return result;
 }

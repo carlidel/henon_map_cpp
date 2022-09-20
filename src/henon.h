@@ -227,9 +227,50 @@ struct matrix_4d_vector_gpu
 
     void reset();
     void structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
+    void set_with_tracker(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
 
     const std::vector<std::vector<std::vector<double>>> get_matrix() const;
     std::vector<std::vector<double>> get_vector(const std::vector<std::vector<double>> &rv) const;
+};
+
+struct vector_4d_gpu
+{
+    double *d_vectors;
+    size_t N;
+    size_t n_blocks;
+
+    vector_4d_gpu(const std::vector<std::vector<double>> &rv);
+    ~vector_4d_gpu();
+
+    void set_vectors(const std::vector<std::vector<double>> &rv);
+    void set_vectors(const std::vector<double> &rv);
+    void multiply(const matrix_4d_vector_gpu &matrix);
+    void normalize();
+
+    const std::vector<std::vector<double>> get_vectors() const;
+};
+
+
+struct lyapunov_birkhoff_construct
+{
+    double *d_vector;
+    double *d_vector_b;
+    double *d_birkhoff;
+    size_t N;
+    size_t n_blocks;
+    size_t n_weights;
+    size_t idx;
+
+    lyapunov_birkhoff_construct(size_t _N, size_t _n_weights);
+    ~lyapunov_birkhoff_construct();
+
+    void reset();
+    void change_weights(size_t _n_weights);
+    void add(const vector_4d_gpu &vectors);
+
+    std::vector<double> get_weights() const;
+    std::vector<double> get_values_raw() const;
+    std::vector<double> get_values_b() const;
 };
 
 struct storage_4d
@@ -251,6 +292,29 @@ struct storage_4d
     const std::vector<std::vector<double>> &get_px() const;
     const std::vector<std::vector<double>> &get_y() const;
     const std::vector<std::vector<double>> &get_py() const;
+};
+
+struct storage_4d_gpu
+{
+    size_t N;
+    size_t batch_size;
+    size_t n_blocks;
+    size_t idx;
+    double *d_x;
+    double *d_px;
+    double *d_y;
+    double *d_py;
+
+    storage_4d_gpu(size_t _N, size_t _batch_size);
+    ~storage_4d_gpu();
+
+    void store(const particles_4d_gpu &particles);
+    void reset();
+
+    const std::vector<std::vector<double>> get_x() const;
+    const std::vector<std::vector<double>> get_px() const;
+    const std::vector<std::vector<double>> get_y() const;
+    const std::vector<std::vector<double>> get_py() const;
 };
 
 #endif // HENON_CU_

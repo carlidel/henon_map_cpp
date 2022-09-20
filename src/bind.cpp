@@ -245,14 +245,46 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def(py::init<size_t>())
         .def("reset", &matrix_4d_vector_gpu::reset)
         .def("structured_multiply", &matrix_4d_vector_gpu::structured_multiply, py::arg("tracker"), py::arg("particles"), py::arg("mu"))
-        .def("get_matrix", [](matrix_4d_vector_gpu &self){
+        .def("set_with_tracker", &matrix_4d_vector_gpu::set_with_tracker, py::arg("tracker"), py::arg("particles"), py::arg("mu"))
+        .def("get_matrix", [](matrix_4d_vector_gpu &self)
+             {
             py::array out = py::cast(self.get_matrix());
-            return out;
-            })
-        .def("get_vector", [](matrix_4d_vector_gpu &self, const std::vector<std::vector<double>> &vector){
+            return out; })
+        .def(
+            "get_vector", [](matrix_4d_vector_gpu &self, const std::vector<std::vector<double>> &vector)
+            {
             py::array out = py::cast(self.get_vector(vector));
-            return out;
-            }, py::arg("vector"));
+            return out; },
+            py::arg("vector"));
+
+    py::class_<vector_4d_gpu>(m, "vector_4d_gpu")
+        .def(py::init<const std::vector<std::vector<double>> &>())
+        .def("set_vectors", static_cast<void (vector_4d_gpu::*)(const std::vector<std::vector<double>> &)>(&vector_4d_gpu::set_vectors), py::arg("vectors"))
+        .def("set_vectors", static_cast<void (vector_4d_gpu::*)(const std::vector<double> &)>(&vector_4d_gpu::set_vectors), py::arg("vectors"))
+        .def("multiply", &vector_4d_gpu::multiply, py::arg("matrix"))
+        .def("normalize", &vector_4d_gpu::normalize)
+        .def("get_vectors", [](vector_4d_gpu &self)
+             {
+            py::array out = py::cast(self.get_vectors());
+            return out; });
+
+    py::class_<lyapunov_birkhoff_construct>(m, "lyapunov_birkhoff_construct")
+        .def(py::init<size_t, size_t>())
+        .def("reset", &lyapunov_birkhoff_construct::reset)
+        .def("change_weights", &lyapunov_birkhoff_construct::change_weights, py::arg("n_weights"))
+        .def("add", &lyapunov_birkhoff_construct::add, py::arg("vectors"))
+        .def("get_weights", [](lyapunov_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_weights());
+            return out; })
+        .def("get_values_raw", [](lyapunov_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_values_raw());
+            return out; })
+        .def("get_values_b", [](lyapunov_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_values_b());
+            return out; });
 
     py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")
         .def(py::init<
@@ -303,15 +335,36 @@ PYBIND11_MODULE(henon_map_engine, m)
     py::class_<storage_4d>(m, "storage_4d")
         .def(py::init<size_t>())
         .def("store",
-            static_cast<void (storage_4d::*)(const particles_4d &)>(&storage_4d::store),
-            "Store particles")
+             static_cast<void (storage_4d::*)(const particles_4d &)>(&storage_4d::store),
+             "Store particles")
         .def("store",
-            static_cast<void (storage_4d::*)(const particles_4d_gpu &)>(& storage_4d::store),
-            "Store particles")
+             static_cast<void (storage_4d::*)(const particles_4d_gpu &)>(&storage_4d::store),
+             "Store particles")
         .def("tune_fft", &storage_4d::tune_fft, "Tune FFT", py::arg("from_idx"), py::arg("to_idx"))
         .def("tune_birkhoff", &storage_4d::tune_birkhoff, "Tune birkhoff", py::arg("from_idx"), py::arg("to_idx"))
         .def("get_x", &storage_4d::get_x)
         .def("get_px", &storage_4d::get_px)
         .def("get_y", &storage_4d::get_y)
         .def("get_py", &storage_4d::get_py);
+
+    py::class_<storage_4d_gpu>(m, "storage_4d_gpu")
+        .def(py::init<size_t, size_t>())
+        .def("store", &storage_4d_gpu::store, "Store particles", py::arg("particles"))
+        .def("reset", &storage_4d_gpu::reset, "Reset storage")
+        .def("get_x", [](storage_4d_gpu &self)
+             {
+            py::array out = py::cast(self.get_x());
+            return out; })
+        .def("get_px", [](storage_4d_gpu &self)
+             {
+            py::array out = py::cast(self.get_px());
+            return out; })
+        .def("get_y", [](storage_4d_gpu &self)
+             {
+            py::array out = py::cast(self.get_y());
+            return out; })
+        .def("get_py", [](storage_4d_gpu &self)
+             {
+            py::array out = py::cast(self.get_py());
+            return out; });
 }
