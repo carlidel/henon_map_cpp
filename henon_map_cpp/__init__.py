@@ -97,7 +97,9 @@ class matrix_4d_vector:
         if self.GPU:
             self.matrix.structured_multiply(tracker.tracker, particles.particles, mu)
         else:
-            self.matrix.structured_multiply(tracker.tracker, particles.particles, mu, reverse)
+            self.matrix.structured_multiply(
+                tracker.tracker, particles.particles, mu, reverse
+            )
 
     def set_with_tracker(self, tracker, particles, mu, reverse=False):
         if self.GPU:
@@ -115,7 +117,7 @@ class matrix_4d_vector:
 
 class vector_4d:
     def __init__(self, initial_vector):
-        assert(gpu_available())
+        assert gpu_available()
         self.vector = vector_4d_gpu(initial_vector)
 
     def set_vectors(self, vector):
@@ -133,12 +135,12 @@ class vector_4d:
 
 class lyapunov_birkhoff_construct:
     def __init__(self, n, n_weights):
-        assert(gpu_available())
+        assert gpu_available()
         self.construct = lbc(n, n_weights)
 
     def reset(self):
         self.construct.reset()
-    
+
     def change_weights(self, n_weights):
         self.construct.change_weights(n_weights)
 
@@ -233,6 +235,59 @@ class henon_tracker:
             ]
         # add a row to the dataframe
         pd_result.loc[len(from_idx)] = [0, n_turns, result[:, -2], result[:, -1]]
+        return pd_result
+
+    def tune_all(
+        self,
+        particles,
+        n_turns,
+        mu,
+        barrier=10.0,
+        kick_module=np.nan,
+        inverse=False,
+        from_idx=np.array([]),
+        to_idx=np.array([]),
+    ):
+        result = np.asarray(
+            self.tracker.all_tunes(
+                particles.particles,
+                n_turns,
+                mu,
+                barrier,
+                kick_module,
+                inverse,
+                from_idx,
+                to_idx,
+            )
+        )
+        pd_result = pd.DataFrame(
+            columns=[
+                "from",
+                "to",
+                "tune_x_birkhoff",
+                "tune_y_birkhoff",
+                "tune_x_fft",
+                "tune_y_fft",
+            ]
+        )
+        for i in range(len(from_idx)):
+            pd_result.loc[i] = [
+                from_idx[i],
+                to_idx[i],
+                result[:, i * 4],
+                result[:, i * 4 + 1],
+                result[:, i * 4 + 2],
+                result[:, i * 4 + 3],
+            ]
+        # add a row to the dataframe
+        pd_result.loc[len(from_idx)] = [
+            0,
+            n_turns,
+            result[:, -4],
+            result[:, -3],
+            result[:, -2],
+            result[:, -1],
+        ]
         return pd_result
 
     def get_tangent_matrix(self, particles, mu, reverse=False):

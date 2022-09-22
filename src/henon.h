@@ -20,6 +20,7 @@
 #include <string>
 #include <limits>
 #include <cstdint>
+#include <set>
 // include standard thread library
 #include <thread>
 #include <mutex>
@@ -176,6 +177,7 @@ public:
     void track(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
 
     std::vector<std::vector<double>> birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
+    std::vector<std::vector<double>> all_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
 
     std::vector<std::vector<std::vector<double>>> get_tangent_matrix(const particles_4d &particles, const double &mu, const bool &reverse) const;
 };

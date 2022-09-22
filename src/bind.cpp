@@ -307,6 +307,7 @@ PYBIND11_MODULE(henon_map_engine, m)
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
         .def("track", &henon_tracker::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
         .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
+        .def("all_tunes", &henon_tracker::all_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
         .def("get_tangent_matrix", [](henon_tracker &self, const particles_4d &particles, const double &mu, const bool &reverse){
             py::array out = py::cast(self.get_tangent_matrix(particles, mu, reverse));
             return out;

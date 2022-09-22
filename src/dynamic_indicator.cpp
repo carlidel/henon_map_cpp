@@ -228,9 +228,21 @@ std::vector<double> birkhoff_tune_vec(std::vector<double> const &x, std::vector<
         std::vector<double> y_sub = std::vector<double>(y.begin() + from_index, y.begin() + to_index + 1);
         std::vector<double> py_sub = std::vector<double>(py.begin() + from_index, py.begin() + to_index + 1);
 
-        // compute the tune
-        tunes.push_back(birkhoff_tune(x_sub, px_sub));
-        tunes.push_back(birkhoff_tune(y_sub, py_sub));
+        // check if there is nan in the vectors
+        if (std::any_of(x_sub.begin(), x_sub.end(), [](double x) { return std::isnan(x); }) ||
+            std::any_of(px_sub.begin(), px_sub.end(), [](double x) { return std::isnan(x); }) ||
+            std::any_of(y_sub.begin(), y_sub.end(), [](double x) { return std::isnan(x); }) ||
+            std::any_of(py_sub.begin(), py_sub.end(), [](double x) { return std::isnan(x); }))
+        {
+            tunes.push_back(std::numeric_limits<double>::quiet_NaN());
+            tunes.push_back(std::numeric_limits<double>::quiet_NaN());
+        }
+        else
+        {
+            // compute the tune
+            tunes.push_back(birkhoff_tune(x_sub, px_sub));
+            tunes.push_back(birkhoff_tune(y_sub, py_sub));
+        }
     }
     
     // compute the full tunes
@@ -268,42 +280,35 @@ std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> pl
             throw std::runtime_error("compute_tune: from and to must be valid indices");
         }
 
-        // get the vectors of the elements to be combined
-        std::vector<double> x_sub = std::vector<double>(x.begin() + from_index, x.begin() + to_index + 1);
-        std::vector<double> px_sub = std::vector<double>(px.begin() + from_index, px.begin() + to_index + 1);
-        std::vector<double> y_sub = std::vector<double>(y.begin() + from_index, y.begin() + to_index + 1);
-        std::vector<double> py_sub = std::vector<double>(py.begin() + from_index, py.begin() + to_index + 1);
-
         // if any number in the sub vecros is a NaN, push back a quiet NaN
-        if (std::any_of(x_sub.begin(), x_sub.end(), [](double x){return std::isnan(x);}) ||
-            std::any_of(px_sub.begin(), px_sub.end(), [](double x){return std::isnan(x);}) ||
-            std::any_of(y_sub.begin(), y_sub.end(), [](double x){return std::isnan(x);}) ||
-            std::any_of(py_sub.begin(), py_sub.end(), [](double x){return std::isnan(x);}))
+        if (std::any_of(x.begin() + from_index, x.end() + to_index + 1, [](double x){return std::isnan(x);}) ||
+            std::any_of(px.begin() + from_index, px.end() + to_index + 1, [](double x){return std::isnan(x);}) ||
+            std::any_of(y.begin() + from_index, y.end() + to_index + 1, [](double x){return std::isnan(x);}) ||
+            std::any_of(py.begin() + from_index, py.end() + to_index + 1, [](double x){return std::isnan(x);}))
         {
             tunes.push_back(std::numeric_limits<double>::quiet_NaN());
             tunes.push_back(std::numeric_limits<double>::quiet_NaN());
             continue;
         }
 
+        // get the vectors of the elements to be combined
+        std::vector<double> x_sub = std::vector<double>(x.begin() + from_index, x.begin() + to_index + 1);
+        std::vector<double> px_sub = std::vector<double>(px.begin() + from_index, px.begin() + to_index + 1);
+        std::vector<double> y_sub = std::vector<double>(y.begin() + from_index, y.begin() + to_index + 1);
+        std::vector<double> py_sub = std::vector<double>(py.begin() + from_index, py.begin() + to_index + 1);
+
         // compute the tune
         tunes.push_back(fft_tune(x_sub, px_sub, std::get<0>(plans[n]), std::get<1>(plans[n]), std::get<2>(plans[n])));
         tunes.push_back(fft_tune(y_sub, py_sub, std::get<0>(plans[n]), std::get<1>(plans[n]), std::get<2>(plans[n])));
     }
 
-    // compute the full tunes
-    // get the vectors of the elements to be combined
-    std::vector<double> x_sub = std::vector<double>(x.begin() + 1, x.end());
-    std::vector<double> px_sub = std::vector<double>(px.begin() + 1, px.end());
-    std::vector<double> y_sub = std::vector<double>(y.begin() + 1, y.end());
-    std::vector<double> py_sub = std::vector<double>(py.begin() + 1, py.end());
-
-    if (std::any_of(x_sub.begin(), x_sub.end(), [](double x)
+    if (std::any_of(x.begin(), x.end(), [](double x)
                     { return std::isnan(x); }) ||
-        std::any_of(px_sub.begin(), px_sub.end(), [](double x)
+        std::any_of(px.begin(), px.end(), [](double x)
                     { return std::isnan(x); }) ||
-        std::any_of(y_sub.begin(), y_sub.end(), [](double x)
+        std::any_of(y.begin(), y.end(), [](double x)
                     { return std::isnan(x); }) ||
-        std::any_of(py_sub.begin(), py_sub.end(), [](double x)
+        std::any_of(py.begin(), py.end(), [](double x)
                     { return std::isnan(x); }))
     {
         tunes.push_back(std::numeric_limits<double>::quiet_NaN());
@@ -311,6 +316,13 @@ std::map<unsigned int, std::tuple<fftw_complex *, fftw_complex *, fftw_plan>> pl
     }
     else
     {
+        // compute the full tunes
+        // get the vectors of the elements to be combined
+        std::vector<double> x_sub = std::vector<double>(x.begin() + 1, x.end());
+        std::vector<double> px_sub = std::vector<double>(px.begin() + 1, px.end());
+        std::vector<double> y_sub = std::vector<double>(y.begin() + 1, y.end());
+        std::vector<double> py_sub = std::vector<double>(py.begin() + 1, py.end());
+
         tunes.push_back(fft_tune(x_sub, px_sub, std::get<0>(plans[x.size() - 1]), std::get<1>(plans[x.size() - 1]), std::get<2>(plans[x.size() - 1])));
         tunes.push_back(fft_tune(y_sub, py_sub, std::get<0>(plans[x.size() - 1]), std::get<1>(plans[x.size() - 1]), std::get<2>(plans[x.size() - 1])));
     }

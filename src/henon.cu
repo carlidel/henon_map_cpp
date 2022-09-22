@@ -1856,10 +1856,10 @@ std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &par
         threads.push_back(std::thread(
             [&](int thread_idx)
             {
-                std::vector<double> store_x(n_turns+1);
-                std::vector<double> store_px(n_turns+1);
-                std::vector<double> store_y(n_turns+1);
-                std::vector<double> store_py(n_turns+1);
+                std::vector<double> store_x(n_turns + 1);
+                std::vector<double> store_px(n_turns + 1);
+                std::vector<double> store_y(n_turns + 1);
+                std::vector<double> store_py(n_turns + 1);
 
                 std::mt19937_64 rng;
 
@@ -1894,6 +1894,111 @@ std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &par
     for (auto &t : threads)
         t.join();
 
+    // update global_steps
+    if (!inverse)
+        particles.global_steps += n_turns;
+    else
+        particles.global_steps -= n_turns;
+
+    return result_vec;
+}
+
+std::vector<std::vector<double>> henon_tracker::all_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier, double kick_module, bool inverse, std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx)
+{
+    from_idx.push_back(0);
+    to_idx.push_back(n_turns);
+
+    std::set<unsigned int> differences;
+    for (unsigned int i = 0; i < from_idx.size(); i++)
+    {
+        differences.insert(to_idx[i] - from_idx[i] + 1);
+        differences.insert(to_idx[i] - from_idx[i]);
+    }
+    // convert set to vector
+    std::vector<unsigned int> differences_vec(differences.begin(), differences.end());
+
+    std::vector<std::vector<double>> result_vec(particles.x.size());
+
+    unsigned int n_threads_cpu = std::thread::hardware_concurrency();
+    // unsigned int n_threads_cpu = 1;
+
+    // check if n_turns is valid
+    if (inverse)
+    {
+        if (n_turns > particles.global_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+    else
+    {
+        if (n_turns + particles.global_steps > allowed_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+
+    double barrier_pow_2 = barrier * barrier;
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
+    {
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                std::vector<double> store_x(n_turns + 1);
+                std::vector<double> store_px(n_turns + 1);
+                std::vector<double> store_y(n_turns + 1);
+                std::vector<double> store_py(n_turns + 1);
+
+                std::mt19937_64 rng;
+                auto fft_memory = fft_allocate(differences_vec);
+
+                for (unsigned int j = thread_idx; j < particles.x.size(); j += n_threads_cpu)
+                {
+                    store_x[0] = particles.x[j];
+                    store_px[0] = particles.px[j];
+                    store_y[0] = particles.y[j];
+                    store_py[0] = particles.py[j];
+                    for (unsigned int k = 0; k < n_turns; k++)
+                    {
+                        henon_step(
+                            particles.x[j], particles.px[j], particles.y[j], particles.py[j], particles.steps[j],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+
+                        store_x[k + 1] = particles.x[j];
+                        store_px[k + 1] = particles.px[j];
+                        store_y[k + 1] = particles.y[j];
+                        store_py[k + 1] = particles.py[j];
+                    }
+                    // remove the mean to store_x
+                    double mean_x = std::accumulate(store_x.begin(), store_x.end(), 0.0) / store_x.size();
+                    std::transform(store_x.begin(), store_x.end(), store_x.begin(), [mean_x](double x) { return x - mean_x; });
+                    // remove the mean to store_px
+                    double mean_px = std::accumulate(store_px.begin(), store_px.end(), 0.0) / store_px.size();
+                    std::transform(store_px.begin(), store_px.end(), store_px.begin(), [mean_px](double x) { return x - mean_px; });
+                    // remove the mean to store_y
+                    double mean_y = std::accumulate(store_y.begin(), store_y.end(), 0.0) / store_y.size();
+                    std::transform(store_y.begin(), store_y.end(), store_y.begin(), [mean_y](double x) { return x - mean_y; });
+                    // remove the mean to store_py
+                    double mean_py = std::accumulate(store_py.begin(), store_py.end(), 0.0) / store_py.size();
+
+                    auto result_birk = birkhoff_tune_vec(store_x, store_px, store_y, store_py, from_idx, to_idx);
+                    auto result_fft = fft_tune_vec(store_x, store_px, store_y, store_py, from_idx, to_idx, fft_memory);
+
+                    // concatenate the two vectors
+                    result_vec[j] = std::vector<double>(result_birk.size() + result_fft.size());
+                    std::copy(result_birk.begin(), result_birk.end(), result_vec[j].begin());
+                    std::copy(result_fft.begin(), result_fft.end(), result_vec[j].begin() + result_birk.size());
+                }
+                fft_free(fft_memory);
+            },
+            i));
+    }
+
+    // join threads
+    for (auto &t : threads)
+        t.join();
     // update global_steps
     if (!inverse)
         particles.global_steps += n_turns;
