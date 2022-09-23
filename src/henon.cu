@@ -1994,7 +1994,7 @@ std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &par
     return result_vec;
 }
 
-std::vector<std::vector<double>> henon_tracker::all_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier, double kick_module, bool inverse, std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx)
+std::tuple<std::vector<std::vector<double>>, std::vector<std::vector<double>>> henon_tracker::all_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier, double kick_module, bool inverse, std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx)
 {
     from_idx.push_back(0);
     to_idx.push_back(n_turns);
@@ -2008,7 +2008,8 @@ std::vector<std::vector<double>> henon_tracker::all_tunes(particles_4d &particle
     // convert set to vector
     std::vector<unsigned int> differences_vec(differences.begin(), differences.end());
 
-    std::vector<std::vector<double>> result_vec(particles.x.size());
+    std::vector<std::vector<double>> result_vec_birk(particles.x.size());
+    std::vector<std::vector<double>> result_vec_fft(particles.x.size());
 
     unsigned int n_threads_cpu = std::thread::hardware_concurrency();
     // unsigned int n_threads_cpu = 1;
@@ -2073,14 +2074,15 @@ std::vector<std::vector<double>> henon_tracker::all_tunes(particles_4d &particle
                     std::transform(store_y.begin(), store_y.end(), store_y.begin(), [mean_y](double x) { return x - mean_y; });
                     // remove the mean to store_py
                     double mean_py = std::accumulate(store_py.begin(), store_py.end(), 0.0) / store_py.size();
+                    std::transform(store_py.begin(), store_py.end(), store_py.begin(), [mean_py](double x) { return x - mean_py; });
 
                     auto result_birk = birkhoff_tune_vec(store_x, store_px, store_y, store_py, from_idx, to_idx);
                     auto result_fft = fft_tune_vec(store_x, store_px, store_y, store_py, from_idx, to_idx, fft_memory);
 
-                    // concatenate the two vectors
-                    result_vec[j] = std::vector<double>(result_birk.size() + result_fft.size());
-                    std::copy(result_birk.begin(), result_birk.end(), result_vec[j].begin());
-                    std::copy(result_fft.begin(), result_fft.end(), result_vec[j].begin() + result_birk.size());
+                    result_vec_birk[j] = std::vector<double>(result_birk.size());
+                    std::copy(result_birk.begin(), result_birk.end(), result_vec_birk[j].begin());
+                    result_vec_fft[j] = std::vector<double>(result_fft.size());
+                    std::copy(result_fft.begin(), result_fft.end(), result_vec_fft[j].begin());
                 }
                 fft_free(fft_memory);
             },
@@ -2096,7 +2098,7 @@ std::vector<std::vector<double>> henon_tracker::all_tunes(particles_4d &particle
     else
         particles.global_steps -= n_turns;
 
-    return result_vec;
+    return std::make_tuple(result_vec_birk, result_vec_fft);
 }
 
 std::vector<std::vector<std::vector<double>>> henon_tracker::get_tangent_matrix(const particles_4d &particles, const double &mu, const bool &reverse) const

@@ -267,7 +267,7 @@ class henon_tracker:
         from_idx=np.array([]),
         to_idx=np.array([]),
     ):
-        result = np.asarray(
+        result_birkhoff, result_fft = np.asarray(
             self.tracker.all_tunes(
                 particles.particles,
                 n_turns,
@@ -293,19 +293,19 @@ class henon_tracker:
             pd_result.loc[i] = [
                 from_idx[i],
                 to_idx[i],
-                result[:, i * 4],
-                result[:, i * 4 + 1],
-                result[:, i * 4 + 2],
-                result[:, i * 4 + 3],
+                result_birkhoff[:, i * 2],
+                result_birkhoff[:, i * 2 + 1],
+                result_fft[:, i * 2],
+                result_fft[:, i * 2 + 1],
             ]
         # add a row to the dataframe
         pd_result.loc[len(from_idx)] = [
             0,
             n_turns,
-            result[:, -4],
-            result[:, -3],
-            result[:, -2],
-            result[:, -1],
+            result_birkhoff[:, -2],
+            result_birkhoff[:, -1],
+            result_fft[:, -2],
+            result_fft[:, -1],
         ]
         return pd_result
 
