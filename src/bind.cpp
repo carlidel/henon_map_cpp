@@ -286,6 +286,19 @@ PYBIND11_MODULE(henon_map_engine, m)
             py::array out = py::cast(self.get_values_b());
             return out; });
 
+    py::class_<lyapunov_birkhoff_construct_multi>(m, "lyapunov_birkhoff_construct_multi")
+        .def(py::init<size_t, std::vector<size_t>>())
+        .def("reset", &lyapunov_birkhoff_construct_multi::reset)
+        .def("add", &lyapunov_birkhoff_construct_multi::add, py::arg("vectors"))
+        .def("get_values_raw", [](lyapunov_birkhoff_construct_multi &self)
+             {
+            py::array out = py::cast(self.get_values_raw());
+            return out; })
+        .def("get_values_b", [](lyapunov_birkhoff_construct_multi &self)
+             {
+            py::array out = py::cast(self.get_values_b());
+            return out; });
+
     py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")
         .def(py::init<
              const std::vector<double> &,

@@ -6,6 +6,7 @@ from .henon_map_engine import birkhoff_weights as cpp_birkhoff_weights
 from .henon_map_engine import henon_tracker as cpp_henon_tracker
 from .henon_map_engine import henon_tracker_gpu as cpp_henon_tracker_gpu
 from .henon_map_engine import lyapunov_birkhoff_construct as lbc
+from .henon_map_engine import lyapunov_birkhoff_construct_multi as lbcm
 from .henon_map_engine import matrix_4d_vector as cpp_matrix_4d_vector
 from .henon_map_engine import matrix_4d_vector_gpu as cpp_matrix_4d_vector_gpu
 from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d
@@ -149,6 +150,24 @@ class lyapunov_birkhoff_construct:
 
     def get_weights(self):
         return np.asarray(self.construct.get_weights())
+
+    def get_values_raw(self):
+        return np.asarray(self.construct.get_values_raw())
+
+    def get_values_b(self):
+        return np.asarray(self.construct.get_values_b())
+
+
+class lyapunov_birkhoff_construct_multi:
+    def __init__(self, n, n_weights):
+        assert gpu_available()
+        self.construct = lbcm(n, n_weights)
+
+    def reset(self):
+        self.construct.reset()
+
+    def add(self, vectors):
+        self.construct.add(vectors.vector)
 
     def get_values_raw(self):
         return np.asarray(self.construct.get_values_raw())

@@ -252,7 +252,6 @@ struct vector_4d_gpu
     const std::vector<std::vector<double>> get_vectors() const;
 };
 
-
 struct lyapunov_birkhoff_construct
 {
     double *d_vector;
@@ -273,6 +272,27 @@ struct lyapunov_birkhoff_construct
     std::vector<double> get_weights() const;
     std::vector<double> get_values_raw() const;
     std::vector<double> get_values_b() const;
+};
+
+struct lyapunov_birkhoff_construct_multi
+{
+    std::vector<double*> d_vector;
+    std::vector<double*> d_vector_b;
+    std::vector<double*> d_birkhoff;
+    size_t N;
+    size_t n_blocks;
+    std::vector<size_t> n_weights;
+    size_t idx;
+
+    lyapunov_birkhoff_construct_multi(size_t _N, std::vector<size_t> _n_weights);
+    ~lyapunov_birkhoff_construct_multi();
+
+    void reset();
+    void add(const vector_4d_gpu &vectors);
+
+    std::vector<std::vector<double>> get_weights() const;
+    std::vector<std::vector<double>> get_values_raw() const;
+    std::vector<std::vector<double>> get_values_b() const;
 };
 
 struct storage_4d

@@ -1729,6 +1729,97 @@ std::vector<double> lyapunov_birkhoff_construct::get_values_b() const
     return values;
 }
 
+lyapunov_birkhoff_construct_multi::lyapunov_birkhoff_construct_multi(size_t _N, std::vector<size_t> _n_weights) : N(_N), n_weights(_n_weights), idx(0)
+{
+    n_blocks = (N + 512 - 1) / 512;
+
+    d_vector.resize(n_weights.size());
+    d_vector_b.resize(n_weights.size());
+    d_birkhoff.resize(n_weights.size());
+
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        auto birkhoff = birkhoff_weights(n_weights[i]);
+        // copy birkhoff to GPU
+        cudaMalloc(&d_birkhoff[i], n_weights[i] * sizeof(double));
+        cudaMemcpy(d_birkhoff[i], birkhoff.data(), n_weights[i] * sizeof(double), cudaMemcpyHostToDevice);
+
+        // create a zero filled vector on GPU of size N
+        cudaMalloc(&d_vector[i], N * sizeof(double));
+        cudaMemset(d_vector[i], 0.0, N * sizeof(double));
+
+        cudaMalloc(&d_vector_b[i], N * sizeof(double));
+        cudaMemset(d_vector_b[i], 0.0, N * sizeof(double));
+    }
+}
+
+lyapunov_birkhoff_construct_multi::~lyapunov_birkhoff_construct_multi()
+{
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        cudaFree(d_birkhoff[i]);
+        cudaFree(d_vector[i]);
+        cudaFree(d_vector_b[i]);
+    }
+}
+
+void lyapunov_birkhoff_construct_multi::reset()
+{
+    idx = 0;
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        cudaMemset(d_vector[i], 0.0, N * sizeof(double));
+        cudaMemset(d_vector_b[i], 0.0, N * sizeof(double));
+    }
+}
+
+void lyapunov_birkhoff_construct_multi::add(const vector_4d_gpu &vectors)
+{
+    // add vectors to lyapunov
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        if (idx < n_weights[i])
+        {
+            kernel_lyap_birk<<<n_blocks, 512>>>(d_vector[i], d_vector_b[i], vectors.d_vectors, d_birkhoff[i], N, n_weights[i], idx);
+        }
+    }
+    idx++;
+}
+
+std::vector<std::vector<double>> lyapunov_birkhoff_construct_multi::get_weights() const
+{
+    std::vector<std::vector<double>> weights(n_weights.size());
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        weights[i].resize(n_weights[i], 0.0);
+        cudaMemcpy(weights[i].data(), d_birkhoff[i], n_weights[i] * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return weights;
+}
+
+std::vector<std::vector<double>> lyapunov_birkhoff_construct_multi::get_values_raw() const
+{
+    std::vector<std::vector<double>> values(n_weights.size());
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        values[i].resize(N, 0.0);
+        // copy values from GPU to CPU
+        cudaMemcpy(values[i].data(), d_vector[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return values;
+}
+
+std::vector<std::vector<double>> lyapunov_birkhoff_construct_multi::get_values_b() const
+{
+    std::vector<std::vector<double>> values(n_weights.size());
+    for (size_t i = 0; i < n_weights.size(); i++)
+    {
+        values[i].resize(N, 0.0);
+        // copy values from GPU to CPU
+        cudaMemcpy(values[i].data(), d_vector_b[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return values;
+}
 
 void henon_tracker::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
 { 
