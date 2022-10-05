@@ -1512,6 +1512,13 @@ std::vector<std::vector<double>> matrix_4d_vector_gpu::get_vector(const std::vec
     return vectors;
 }
 
+void matrix_4d_vector_gpu::explicit_copy(const matrix_4d_vector_gpu &other)
+{
+    // assert that the other matrix has the same size
+    assert(other.N == N);
+    cudaMemcpy(d_matrix, other.d_matrix, N * 16 * sizeof(double), cudaMemcpyDeviceToDevice);
+}
+
 const std::vector<std::vector<std::vector<double>>> matrix_4d_vector_gpu::get_matrix() const
 {
     std::vector<double> matrix_flattened(N * 16, 0.0);
@@ -1820,6 +1827,75 @@ std::vector<std::vector<double>> lyapunov_birkhoff_construct_multi::get_values_b
     }
     return values;
 }
+
+
+megno_construct::megno_construct(size_t _N) : N(_N)
+{
+    n_blocks = (N + 512 - 1) / 512;
+    idx = 1;
+
+    // create a zero filled vector on GPU of size N
+    cudaMalloc(&d_vector, N * sizeof(double));
+    cudaMemset(d_vector, 0.0, N * sizeof(double));
+}
+
+megno_construct::~megno_construct()
+{
+    cudaFree(d_vector);
+}
+
+void megno_construct::reset()
+{
+    idx = 1;
+    cudaMemset(d_vector, 0.0, N * sizeof(double));
+}
+
+__global__ void kernel_megno(double *d_vector, double *d_matrix_a, double *d_matrix_b, size_t N, size_t idx)
+{
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N)
+        return;
+
+    // calculate trace(AA^t)
+    double trace_a = 0.0;
+    for (size_t j = 0; j < 4; j++)
+    {
+        for (size_t k = 0; k < 4; k++)
+        {
+            trace_a += d_matrix_a[i * 16 + j * 4 + k] * d_matrix_a[i * 16 + j * 4 + k];
+        }
+    }
+    trace_a = sqrt(trace_a);
+
+    // calculate trace(BB^t)
+    double trace_b = 0.0;
+    for (size_t j = 0; j < 4; j++)
+    {
+        for (size_t k = 0; k < 4; k++)
+        {
+            trace_b += d_matrix_b[i * 16 + j * 4 + k] * d_matrix_b[i * 16 + j * 4 + k];
+        }
+    }
+    trace_b = sqrt(trace_b);
+
+    d_vector[i] += log(trace_a / trace_b) * idx; 
+}
+
+void megno_construct::add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b)
+{
+    // add vectors to lyapunov
+    kernel_megno<<<n_blocks, 512>>>(d_vector, matrix_a.d_matrix, matrix_b.d_matrix, N, idx);
+    idx++;
+}
+
+std::vector<double> megno_construct::get_values() const
+{
+    std::vector<double> values(N, 0.0);
+    // copy values from GPU to CPU
+    cudaMemcpy(values.data(), d_vector, N * sizeof(double), cudaMemcpyDeviceToHost);
+    return values;
+}
+
 
 void henon_tracker::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
 { 

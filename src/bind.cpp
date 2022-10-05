@@ -246,6 +246,7 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("reset", &matrix_4d_vector_gpu::reset)
         .def("structured_multiply", &matrix_4d_vector_gpu::structured_multiply, py::arg("tracker"), py::arg("particles"), py::arg("mu"))
         .def("set_with_tracker", &matrix_4d_vector_gpu::set_with_tracker, py::arg("tracker"), py::arg("particles"), py::arg("mu"))
+        .def("explicit_copy", &matrix_4d_vector_gpu::explicit_copy, py::arg("other"))
         .def("get_matrix", [](matrix_4d_vector_gpu &self)
              {
             py::array out = py::cast(self.get_matrix());
@@ -297,6 +298,15 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("get_values_b", [](lyapunov_birkhoff_construct_multi &self)
              {
             py::array out = py::cast(self.get_values_b());
+            return out; });
+
+    py::class_<megno_construct>(m, "megno_construct")
+        .def(py::init<size_t>())
+        .def("reset", &megno_construct::reset)
+        .def("add", &megno_construct::add, py::arg("matrix_a"), py::arg("matrix_b"))
+        .def("get_values", [](megno_construct &self)
+             {
+            py::array out = py::cast(self.get_values());
             return out; });
 
     py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")

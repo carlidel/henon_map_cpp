@@ -230,6 +230,7 @@ struct matrix_4d_vector_gpu
     void reset();
     void structured_multiply(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
     void set_with_tracker(const henon_tracker_gpu &tracker, const particles_4d_gpu &particles, const double &mu);
+    void explicit_copy(const matrix_4d_vector_gpu &matrix);
 
     const std::vector<std::vector<std::vector<double>>> get_matrix() const;
     std::vector<std::vector<double>> get_vector(const std::vector<std::vector<double>> &rv) const;
@@ -293,6 +294,22 @@ struct lyapunov_birkhoff_construct_multi
     std::vector<std::vector<double>> get_weights() const;
     std::vector<std::vector<double>> get_values_raw() const;
     std::vector<std::vector<double>> get_values_b() const;
+};
+
+struct megno_construct
+{
+    double* d_vector;
+    size_t N;
+    size_t n_blocks;
+    size_t idx;
+
+    megno_construct(size_t _N);
+    ~megno_construct();
+
+    void reset();
+    void add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b);
+
+    std::vector<double> get_values() const;
 };
 
 struct storage_4d
