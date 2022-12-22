@@ -1834,23 +1834,32 @@ megno_construct::megno_construct(size_t _N) : N(_N)
     n_blocks = (N + 512 - 1) / 512;
     idx = 1;
 
-    // create a zero filled vector on GPU of size N
-    cudaMalloc(&d_vector, N * sizeof(double));
-    cudaMemset(d_vector, 0.0, N * sizeof(double));
+    cudaMalloc(&d_layer1, N * sizeof(double));
+    cudaMemset(d_layer1, 0.0, N * sizeof(double));
+
+    cudaMalloc(&d_layer2, N * sizeof(double));
+    cudaMemset(d_layer2, 0.0, N * sizeof(double));
+
+    cudaMalloc(&d_layer3, N * sizeof(double));
+    cudaMemset(d_layer3, 0.0, N * sizeof(double));
 }
 
 megno_construct::~megno_construct()
 {
-    cudaFree(d_vector);
+    cudaFree(d_layer1);
+    cudaFree(d_layer2);
+    cudaFree(d_layer3);
 }
 
 void megno_construct::reset()
 {
     idx = 1;
-    cudaMemset(d_vector, 0.0, N * sizeof(double));
+    cudaMemset(d_layer1, 0.0, N * sizeof(double));
+    cudaMemset(d_layer2, 0.0, N * sizeof(double));
+    cudaMemset(d_layer3, 0.0, N * sizeof(double));
 }
 
-__global__ void kernel_megno(double *d_vector, double *d_matrix_a, double *d_matrix_b, size_t N, size_t idx)
+__global__ void kernel_megno(double *d_layer1, double *d_layer2, double *d_layer3, double *d_matrix_a, double *d_matrix_b, size_t N, size_t idx)
 {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N)
@@ -1878,13 +1887,15 @@ __global__ void kernel_megno(double *d_vector, double *d_matrix_a, double *d_mat
     }
     trace_b = sqrt(trace_b);
 
-    d_vector[i] += log(trace_a / trace_b) * idx; 
+    d_layer1[i] += log(trace_a / trace_b) * idx;
+    d_layer2[i] += (1 / idx) * d_layer1[i];
+    d_layer3[i] = (1 / idx) * d_layer2[i];
 }
 
 void megno_construct::add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b)
 {
     // add vectors to lyapunov
-    kernel_megno<<<n_blocks, 512>>>(d_vector, matrix_a.d_matrix, matrix_b.d_matrix, N, idx);
+    kernel_megno<<<n_blocks, 512>>>(d_layer1, d_layer2, d_layer3, matrix_a.d_matrix, matrix_b.d_matrix, N, idx);
     idx++;
 }
 
@@ -1892,8 +1903,340 @@ std::vector<double> megno_construct::get_values() const
 {
     std::vector<double> values(N, 0.0);
     // copy values from GPU to CPU
-    cudaMemcpy(values.data(), d_vector, N * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(values.data(), d_layer3, N * sizeof(double), cudaMemcpyDeviceToHost);
     return values;
+}
+
+
+megno_birkhoff_construct::megno_birkhoff_construct(size_t _N, std::vector<size_t> _turn_samples) : N(_N)
+{
+    n_blocks = (N + 512 - 1) / 512;
+    idx = 1;
+
+    cudaMalloc(&d_turn_samples, _turn_samples.size() * sizeof(size_t));
+    cudaMemcpy(d_turn_samples, _turn_samples.data(), _turn_samples.size() * sizeof(size_t), cudaMemcpyHostToDevice);
+    n_turn_samples = _turn_samples.size();
+
+    // allocate n_turn_samples pointers for d_weights and d_layer2
+    cudaMalloc(&d_weights, n_turn_samples * sizeof(double *));
+    cudaMalloc(&d_layer2, n_turn_samples * sizeof(double *));
+
+    // allocate memory for each pointer of d_weights and d_layer2
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        auto weights = birkhoff_weights(_turn_samples[i]);
+        double *d_weights_i;
+        cudaMalloc(&d_weights_i, weights.size() * sizeof(double));
+        cudaMemcpy(d_weights_i, weights.data(), weights.size() * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_weights + i, &d_weights_i, sizeof(double *), cudaMemcpyHostToDevice);
+
+        double *d_layer2_i;
+        cudaMalloc(&d_layer2_i, N * sizeof(double));
+        cudaMemset(d_layer2_i, 0.0, N * sizeof(double));
+        cudaMemcpy(d_layer2 + i, &d_layer2_i, sizeof(double *), cudaMemcpyHostToDevice);
+    }
+
+    cudaMalloc(&d_layer1, N * sizeof(double));
+    cudaMemset(d_layer1, 0.0, N * sizeof(double));
+}
+
+megno_birkhoff_construct::~megno_birkhoff_construct()
+{
+    cudaFree(d_turn_samples);
+    cudaFree(d_layer1);
+
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        double *d_weights_i;
+        cudaMemcpy(&d_weights_i, d_weights + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_weights_i);
+
+        double *d_layer2_i;
+        cudaMemcpy(&d_layer2_i, d_layer2 + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_layer2_i);
+    }
+
+    cudaFree(d_weights);
+    cudaFree(d_layer2);
+}
+
+void megno_birkhoff_construct::reset()
+{
+    idx = 1;
+    cudaMemset(d_layer1, 0.0, N * sizeof(double));
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        double *d_layer2_i;
+        cudaMemcpy(&d_layer2_i, d_layer2 + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemset(d_layer2_i, 0.0, N * sizeof(double));
+    }
+}
+
+__global__ void kernel_megno_birkhoff(double *d_layer1, double **d_layer2, double **d_weights, size_t *d_turn_samples, double *d_matrix_a, double *d_matrix_b, size_t N, size_t idx, double n_turn_samples)
+{
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N)
+        return;
+
+    // calculate trace(AA^t)
+    double trace_a = 0.0;
+    for (size_t j = 0; j < 4; j++)
+    {
+        for (size_t k = 0; k < 4; k++)
+        {
+            trace_a += d_matrix_a[i * 16 + j * 4 + k] * d_matrix_a[i * 16 + j * 4 + k];
+        }
+    }
+    trace_a = sqrt(trace_a);
+
+    // calculate trace(BB^t)
+    double trace_b = 0.0;
+    for (size_t j = 0; j < 4; j++)
+    {
+        for (size_t k = 0; k < 4; k++)
+        {
+            trace_b += d_matrix_b[i * 16 + j * 4 + k] * d_matrix_b[i * 16 + j * 4 + k];
+        }
+    }
+    trace_b = sqrt(trace_b);
+
+    d_layer1[i] += log(trace_a / trace_b) * idx;
+    for (size_t j = 0; j < n_turn_samples; j++)
+    {
+        if (idx <= d_turn_samples[j])
+        {
+            d_layer2[j][i] += d_layer1[i] * d_weights[j][idx - 1] / idx;
+        }
+    }
+}
+
+void megno_birkhoff_construct::add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b)
+{
+    // add vectors to lyapunov
+    kernel_megno_birkhoff<<<n_blocks, 512>>>(d_layer1, d_layer2, d_weights, d_turn_samples, matrix_a.d_matrix, matrix_b.d_matrix, N, idx, n_turn_samples);
+    idx++;
+}
+
+std::vector<std::vector<double>> megno_birkhoff_construct::get_values() const
+{
+    std::vector<std::vector<double>> values(n_turn_samples);
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        values[i].resize(N);
+        double *d_layer2_i;
+        cudaMemcpy(&d_layer2_i, d_layer2 + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(values[i].data(), d_layer2_i, N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return values;
+}
+
+tune_birkhoff_construct::tune_birkhoff_construct(size_t N, std::vector<size_t> _turn_samples)
+{
+    n_blocks = (N + 512 - 1) / 512;
+    idx = 1;
+
+    cudaMalloc(&d_turn_samples, _turn_samples.size() * sizeof(size_t));
+    cudaMemcpy(d_turn_samples, _turn_samples.data(), _turn_samples.size() * sizeof(size_t), cudaMemcpyHostToDevice);
+    n_turn_samples = _turn_samples.size();
+
+    // allocate n_turn_samples pointers for d_weights and d_layer2
+    cudaMalloc(&d_weights, n_turn_samples * sizeof(double *));
+    cudaMalloc(&d_tune1_x, n_turn_samples * sizeof(double *));
+    cudaMalloc(&d_tune2_x, n_turn_samples * sizeof(double *));
+    cudaMalloc(&d_tune1_y, n_turn_samples * sizeof(double *));
+    cudaMalloc(&d_tune2_y, n_turn_samples * sizeof(double *));
+
+    // allocate memory for each pointer of d_weights and d_layer2
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        auto weights = birkhoff_weights(_turn_samples[i]);
+        double *d_weights_i;
+        cudaMalloc(&d_weights_i, weights.size() * sizeof(double));
+        cudaMemcpy(d_weights_i, weights.data(), weights.size() * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_weights + i, &d_weights_i, sizeof(double *), cudaMemcpyHostToDevice);
+
+        double *d_tune1_x_i;
+        cudaMalloc(&d_tune1_x_i, N * sizeof(double));
+        cudaMemcpy(d_tune1_x + i, &d_tune1_x_i, sizeof(double *), cudaMemcpyHostToDevice);
+
+        double *d_tune2_x_i;
+        cudaMalloc(&d_tune2_x_i, N * sizeof(double));
+        cudaMemcpy(d_tune2_x + i, &d_tune2_x_i, sizeof(double *), cudaMemcpyHostToDevice);
+
+        double *d_tune1_y_i;
+        cudaMalloc(&d_tune1_y_i, N * sizeof(double));
+        cudaMemcpy(d_tune1_y + i, &d_tune1_y_i, sizeof(double *), cudaMemcpyHostToDevice);
+
+        double *d_tune2_y_i;
+        cudaMalloc(&d_tune2_y_i, N * sizeof(double));
+        cudaMemcpy(d_tune2_y + i, &d_tune2_y_i, sizeof(double *), cudaMemcpyHostToDevice);
+    }
+
+    // allocate memory for store_x and store_y
+    cudaMalloc(&store_x, N * sizeof(double));
+    cudaMalloc(&store_y, N * sizeof(double));
+}
+
+tune_birkhoff_construct::~tune_birkhoff_construct()
+{
+    cudaFree(d_turn_samples);
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        double *d_weights_i;
+        cudaMemcpy(&d_weights_i, d_weights + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_weights_i);
+
+        double *d_tune1_x_i;
+        cudaMemcpy(&d_tune1_x_i, d_tune1_x + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_tune1_x_i);
+
+        double *d_tune2_x_i;
+        cudaMemcpy(&d_tune2_x_i, d_tune2_x + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_tune2_x_i);
+
+        double *d_tune1_y_i;
+        cudaMemcpy(&d_tune1_y_i, d_tune1_y + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_tune1_y_i);
+
+        double *d_tune2_y_i;
+        cudaMemcpy(&d_tune2_y_i, d_tune2_y + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaFree(d_tune2_y_i);
+    }
+    cudaFree(d_weights);
+    cudaFree(d_tune1_x);
+    cudaFree(d_tune2_x);
+    cudaFree(d_tune1_y);
+    cudaFree(d_tune2_y);
+
+    cudaFree(store_x);
+    cudaFree(store_y);
+}
+
+void tune_birkhoff_construct::reset()
+{
+    idx = 1;
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        double *d_tune1_x_i;
+        cudaMemcpy(&d_tune1_x_i, d_tune1_x + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemset(d_tune1_x_i, 0, N * sizeof(double));
+
+        double *d_tune2_x_i;
+        cudaMemcpy(&d_tune2_x_i, d_tune2_x + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemset(d_tune2_x_i, 0, N * sizeof(double));
+
+        double *d_tune1_y_i;
+        cudaMemcpy(&d_tune1_y_i, d_tune1_y + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemset(d_tune1_y_i, 0, N * sizeof(double));
+
+        double *d_tune2_y_i;
+        cudaMemcpy(&d_tune2_y_i, d_tune2_y + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemset(d_tune2_y_i, 0, N * sizeof(double));
+    }
+}
+
+__global__ void kernel_tune_birkhoff_init(double *d_x, double *d_px, double *d_y, double *d_py, double *store_x, double *store_y, size_t N)
+{
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N)
+        return;
+
+    // evaluate the angle of the complex number (d_x[i] + j * d_px[i])
+    double angle_x = atan2(d_px[i], d_x[i]);
+    double angle_y = atan2(d_py[i], d_y[i]);
+
+    // store the angle for the next turn
+    store_x[i] = angle_x;
+    store_y[i] = angle_y;
+}
+
+__global__ void kernel_tune_birkhoff(double *d_x, double *d_px, double *d_y, double *d_py, double *store_x, double *store_y, double **d_tune1_x, double **d_tune2_x, double **d_tune1_y, double **d_tune2_y, double **d_weights, size_t *d_turn_samples, size_t N, size_t idx, double n_turn_samples)
+{
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N)
+        return;
+
+    // evaluate the angle of the complex number (d_x[i] + j * d_px[i])
+    double angle_x = atan2(d_px[i], d_x[i]);
+    double angle_y = atan2(d_py[i], d_y[i]);
+
+    double delta_x = angle_x - store_x[i];
+    double delta_y = angle_y - store_y[i];
+
+    delta_x = delta_x > 0 ? delta_x : delta_x + 2 * M_PI;
+    delta_y = delta_y > 0 ? delta_y : delta_y + 2 * M_PI;
+
+    // store the angle for the next turn
+    store_x[i] = angle_x;
+    store_y[i] = angle_y;
+
+    // store the birkhoff average in the global memory
+    for (size_t j = 0; j < n_turn_samples; j++)
+    {
+        if (idx < d_turn_samples[j])
+        {
+            // we store in tune 1
+            d_tune1_x[j][i] += delta_x * d_weights[j][idx];
+            d_tune1_y[j][i] += delta_y * d_weights[j][idx];
+        }
+        else if (idx < 2 * d_turn_samples[j])
+        {
+            // we store in tune 2
+            d_tune2_x[j][i] += delta_x * d_weights[j][idx - d_turn_samples[j]];
+            d_tune2_y[j][i] += delta_y * d_weights[j][idx - d_turn_samples[j]];
+        }
+    }
+}
+
+void tune_birkhoff_construct::first_add(const particles_4d_gpu &particles)
+{
+    kernel_tune_birkhoff_init<<<n_blocks, 512>>>(particles.d_x, particles.d_px, particles.d_y, particles.d_py, store_x, store_y, N);
+}
+
+void tune_birkhoff_construct::add(const particles_4d_gpu &particles)
+{
+    kernel_tune_birkhoff<<<n_blocks, 512>>>(particles.d_x, particles.d_px, particles.d_y, particles.d_py, store_x, store_y, d_tune1_x, d_tune2_x, d_tune1_y, d_tune2_y, d_weights, d_turn_samples, N, idx, n_turn_samples);
+    idx++;
+}
+
+std::vector<std::vector<double>> tune_birkhoff_construct::get_tune1_x() const
+{
+    std::vector<std::vector<double>> tune1_x(n_turn_samples, std::vector<double>(N));
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        cudaMemcpy(tune1_x[i].data(), d_tune1_x[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return tune1_x;
+}
+
+std::vector<std::vector<double>> tune_birkhoff_construct::get_tune2_x() const
+{
+    std::vector<std::vector<double>> tune2_x(n_turn_samples, std::vector<double>(N));
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        cudaMemcpy(tune2_x[i].data(), d_tune2_x[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return tune2_x;
+}
+
+std::vector<std::vector<double>> tune_birkhoff_construct::get_tune1_y() const
+{
+    std::vector<std::vector<double>> tune1_y(n_turn_samples, std::vector<double>(N));
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        cudaMemcpy(tune1_y[i].data(), d_tune1_y[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return tune1_y;
+}
+
+std::vector<std::vector<double>> tune_birkhoff_construct::get_tune2_y() const
+{
+    std::vector<std::vector<double>> tune2_y(n_turn_samples, std::vector<double>(N));
+    for (size_t i = 0; i < n_turn_samples; i++)
+    {
+        cudaMemcpy(tune2_y[i].data(), d_tune2_y[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    return tune2_y;
 }
 
 
@@ -1994,6 +2337,142 @@ void henon_tracker::track(particles_4d &particles, unsigned int n_turns, double 
         particles.global_steps -= n_turns;
 }
 
+
+std::vector<std::vector<double>> henon_tracker::megno(particles_4d &particles, unsigned int n_turns, double mu, double barrier, double kick_module, bool inverse, std::vector<unsigned int> turn_samples, int n_threads_cpu)
+{
+    if(n_threads_cpu == -1)
+        n_threads_cpu = std::thread::hardware_concurrency();
+
+    if(turn_samples.size() == 0)
+        turn_samples.push_back(n_turns);
+
+    // check if n_turns is valid
+    if (inverse)
+    {
+        if (n_turns > particles.global_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+    else
+    {
+        if (n_turns + particles.global_steps > allowed_steps)
+            throw std::runtime_error("The number of turns is too large.");
+    }
+
+    double barrier_pow_2 = barrier * barrier;
+
+    std::vector<std::vector<double>> result_vec(particles.x.size());
+
+    // for every element in vector x, execute cpu_henon_track in parallel
+    std::vector<std::thread> threads;
+    for (unsigned int i = 0; i < n_threads_cpu; i++)
+    {
+        threads.push_back(std::thread(
+            [&](int thread_idx)
+            {
+                std::vector<double> megno_vals(n_turns + 1);
+                std::mt19937_64 rng;
+
+                // allocate 4x4 matrix
+                std::vector<std::vector<double>> full_matrix(4, std::vector<double>(4, 0.0));
+                double trace_1, trace_2;
+                double tmp, sum;
+                std::vector<double> result;
+
+                for (unsigned int j = thread_idx; j < particles.x.size(); j += n_threads_cpu)
+                {
+                    // make it an identity matrix
+                    full_matrix[0][0] = 1.0;
+                    full_matrix[1][1] = 1.0;
+                    full_matrix[2][2] = 1.0;
+                    full_matrix[3][3] = 1.0;
+
+                    // initialize trace_1 and trace_2 to the trace of the identity matrix
+                    trace_1 = 4.0;
+                    trace_2 = 4.0;
+
+                    auto starting_time = std::chrono::high_resolution_clock::now();
+
+                    for (unsigned int k = 0; k < n_turns; k++)
+                    {
+                        full_matrix = multiply_matrices(
+                            tangent_matrix(
+                                particles.x[j], particles.px[j],
+                                particles.y[j], particles.py[j],
+                                omega_x_sin[k], omega_x_cos[k],
+                                omega_y_sin[k], omega_y_cos[k], mu), 
+                            full_matrix);
+
+                        trace_2 = trace_1;
+                        trace_1 = full_matrix[0][0] + full_matrix[1][1] + full_matrix[2][2] + full_matrix[3][3];
+
+                        megno_vals[k] = (k+1) * log10(trace_1 / trace_2);
+
+                        henon_step(
+                            particles.x[j], particles.px[j], particles.y[j], particles.py[j], particles.steps[j],
+                            omega_x_sin.data(), omega_x_cos.data(),
+                            omega_y_sin.data(), omega_y_cos.data(),
+                            barrier_pow_2, mu, kick_module,
+                            rng, inverse);
+
+                    }
+                    if(thread_idx == 0)
+                        std::cout << "Thread " << thread_idx << " finished tracking" << j << " of " << particles.x.size() << std::endl;
+
+                    sum = 0.0;
+                    for (unsigned int k = 0; k < n_turns; k++)
+                    {
+                        sum += megno_vals[k];
+                        megno_vals[k] = sum;
+                    }
+
+                    for (unsigned int k = 0; k < n_turns; k++)
+                    {
+                        megno_vals[k] /= (k+1);
+                    }
+
+                    sum = 0.0;
+                    for (unsigned int k = 0; k < n_turns; k++)
+                    {
+                        sum += megno_vals[k];
+                        megno_vals[k] = sum;
+                    }
+
+                    for (unsigned int k = 0; k < turn_samples.size(); k++)
+                    {
+                        result.push_back(megno_vals[turn_samples[k]]/turn_samples[k]);
+                    }
+
+                    result_vec[j] = result;
+
+                    // reset result
+                    result.clear();
+
+                    auto ending_time = std::chrono::high_resolution_clock::now();
+
+                    if(thread_idx == 0)
+                    {
+                        std::cout << "Thread " << thread_idx << " finished megno" << j << " of " << particles.x.size() << std::endl;
+                        std::cout << "Time elapsed in minutes " << std::chrono::duration_cast<std::chrono::minutes>(ending_time - starting_time).count() << std::endl;
+                    }
+                }
+            },
+            i));
+    }
+
+    // join threads
+    for (auto &t : threads)
+        t.join();
+
+    // update global_steps
+    if (!inverse)
+        particles.global_steps += n_turns;
+    else
+        particles.global_steps -= n_turns;
+
+    return result_vec;
+}
+
+
 std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier, double kick_module, bool inverse, std::vector<unsigned int> from_idx, std::vector<unsigned int> to_idx)
 {
     from_idx.push_back(0);
@@ -2052,6 +2531,9 @@ std::vector<std::vector<double>> henon_tracker::birkhoff_tunes(particles_4d &par
                     }
                     auto result = birkhoff_tune_vec(store_x, store_px, store_y, store_py, from_idx, to_idx);
                     result_vec[j] = result;
+
+                    if(thread_idx == 0)
+                        std::cout << "Thread " << thread_idx << " finished " << j << " of " << particles.x.size() << std::endl;
                 }
             },
             i));
@@ -2139,6 +2621,8 @@ std::tuple<std::vector<std::vector<double>>, std::vector<std::vector<double>>> h
                         store_y[k + 1] = particles.y[j];
                         store_py[k + 1] = particles.py[j];
                     }
+                    if(thread_idx == 0)
+                        std::cout << "Thread " << thread_idx << " finished tracking of " << j << " of " << particles.x.size() << std::endl;
                     // remove the mean to store_x
                     double mean_x = std::accumulate(store_x.begin(), store_x.end(), 0.0) / store_x.size();
                     std::transform(store_x.begin(), store_x.end(), store_x.begin(), [mean_x](double x) { return x - mean_x; });
@@ -2159,6 +2643,8 @@ std::tuple<std::vector<std::vector<double>>, std::vector<std::vector<double>>> h
                     std::copy(result_birk.begin(), result_birk.end(), result_vec_birk[j].begin());
                     result_vec_fft[j] = std::vector<double>(result_fft.size());
                     std::copy(result_fft.begin(), result_fft.end(), result_vec_fft[j].begin());
+                    if(thread_idx == 0)
+                        std::cout << "Thread " << thread_idx << " finished " << j << " of " << particles.x.size() << std::endl;
                 }
                 fft_free(fft_memory);
             },

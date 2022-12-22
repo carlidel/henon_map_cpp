@@ -308,6 +308,37 @@ PYBIND11_MODULE(henon_map_engine, m)
              {
             py::array out = py::cast(self.get_values());
             return out; });
+    
+    py::class_<megno_birkhoff_construct>(m, "megno_birkhoff_construct")
+        .def(py::init<size_t, std::vector<size_t>>())
+        .def("reset", &megno_birkhoff_construct::reset)
+        .def("add", &megno_birkhoff_construct::add, py::arg("matrix_a"), py::arg("matrix_b"))
+        .def("get_values", [](megno_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_values());
+            return out; });
+
+    py::class_<tune_birkhoff_construct>(m, "tune_birkhoff_construct")
+        .def(py::init<size_t, std::vector<size_t>>())
+        .def("reset", &tune_birkhoff_construct::reset)
+        .def("first_add", &tune_birkhoff_construct::first_add, py::arg("particles"))
+        .def("add", &tune_birkhoff_construct::add, py::arg("particles"))
+        .def("get_tune1_x", [](tune_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_tune1_x());
+            return out; })
+        .def("get_tune1_y", [](tune_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_tune1_y());
+            return out; })
+        .def("get_tune2_x", [](tune_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_tune2_x());
+            return out; })
+        .def("get_tune2_y", [](tune_birkhoff_construct &self)
+             {
+            py::array out = py::cast(self.get_tune2_y());
+            return out; });
 
     py::class_<particles_4d_gpu, particles_4d>(m, "particles_4d_gpu")
         .def(py::init<
@@ -329,6 +360,7 @@ PYBIND11_MODULE(henon_map_engine, m)
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
         .def("track", &henon_tracker::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
+        .def("megno", &henon_tracker::megno, "Compute megno", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("turn_samples") = std::vector<unsigned int>(), py::arg("n_threads") = -1)
         .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
         .def("all_tunes", &henon_tracker::all_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
         .def("get_tangent_matrix", [](henon_tracker &self, const particles_4d &particles, const double &mu, const bool &reverse){

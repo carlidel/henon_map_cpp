@@ -176,6 +176,8 @@ public:
 
     void track(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false);
 
+    std::vector<std::vector<double>> megno(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> turn_samples = std::vector<unsigned int>(), int n_threads = -1);
+
     std::vector<std::vector<double>> birkhoff_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
     std::tuple<std::vector<std::vector<double>>, std::vector<std::vector<double>>> all_tunes(particles_4d &particles, unsigned int n_turns, double mu, double barrier = 100.0, double kick_module = NAN, bool inverse = false, std::vector<unsigned int> from_idx = std::vector<unsigned int>(), std::vector<unsigned int> to_idx = std::vector<unsigned int>());
 
@@ -298,7 +300,9 @@ struct lyapunov_birkhoff_construct_multi
 
 struct megno_construct
 {
-    double* d_vector;
+    double* d_layer1;
+    double* d_layer2;
+    double* d_layer3;
     size_t N;
     size_t n_blocks;
     size_t idx;
@@ -310,6 +314,54 @@ struct megno_construct
     void add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b);
 
     std::vector<double> get_values() const;
+};
+
+struct megno_birkhoff_construct
+{
+    double* d_layer1;
+    double** d_layer2;
+    double** d_weights;
+    size_t* d_turn_samples;
+    size_t n_turn_samples;
+    size_t N;
+    size_t n_blocks;
+    size_t idx;
+
+    megno_birkhoff_construct(size_t _N, std::vector<size_t> _turn_samples);
+    ~megno_birkhoff_construct();
+
+    void reset();
+    void add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b);
+
+    std::vector<std::vector<double>> get_values() const;
+};
+
+struct tune_birkhoff_construct
+{
+    double** d_tune1_x;
+    double** d_tune1_y;
+    double** d_tune2_x;
+    double** d_tune2_y;
+    double** d_weights;
+    double* store_x;
+    double* store_y;
+    size_t* d_turn_samples;
+    size_t n_turn_samples;
+    size_t N;
+    size_t n_blocks;
+    size_t idx;
+
+    tune_birkhoff_construct(size_t _N, std::vector<size_t> _turn_samples);
+    ~tune_birkhoff_construct();
+
+    void reset();
+    void first_add(const particles_4d_gpu &particles);
+    void add(const particles_4d_gpu &particles);
+
+    std::vector<std::vector<double>> get_tune1_x() const;
+    std::vector<std::vector<double>> get_tune1_y() const;
+    std::vector<std::vector<double>> get_tune2_x() const;
+    std::vector<std::vector<double>> get_tune2_y() const;
 };
 
 struct storage_4d

@@ -9,6 +9,9 @@ from .henon_map_engine import lyapunov_birkhoff_construct as lbc
 from .henon_map_engine import lyapunov_birkhoff_construct_multi as lbcm
 from .henon_map_engine import matrix_4d_vector as cpp_matrix_4d_vector
 from .henon_map_engine import matrix_4d_vector_gpu as cpp_matrix_4d_vector_gpu
+from .henon_map_engine import megno_construct as megno
+from .henon_map_engine import megno_birkhoff_construct as megno_birkhoff
+from .henon_map_engine import tune_birkhoff_construct as tune_birkhoff
 from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d
 from .henon_map_engine import storage_4d_gpu as cpp_storage_4d_gpu
 from .henon_map_engine import vector_4d_gpu
@@ -109,6 +112,12 @@ class matrix_4d_vector:
             # not implemented...
             raise NotImplementedError
 
+    def explicit_copy(self, other_matrix):
+        if self.GPU:
+            self.matrix.explicit_copy(other_matrix.matrix)
+        else:
+            raise NotImplementedError
+
     def get_matrix(self):
         return np.asarray(self.matrix.get_matrix())
 
@@ -176,6 +185,67 @@ class lyapunov_birkhoff_construct_multi:
         return np.asarray(self.construct.get_values_b())
 
 
+class megno_construct:
+    def __init__(self, n):
+        assert gpu_available()
+        self.construct = megno(n)
+
+    def reset(self):
+        self.construct.reset()
+
+    def add(self, matrix_a: matrix_4d_vector, matrix_b: matrix_4d_vector):
+        self.construct.add(matrix_a.matrix, matrix_b.matrix)
+
+    def get_values(self):
+        return np.asarray(self.construct.get_values())
+
+
+class megno_birkhoff_construct:
+    def __init__(self, n, n_weights):
+        assert gpu_available()
+        self.construct = megno_birkhoff(n, n_weights)
+
+    def reset(self):
+        self.construct.reset()
+
+    def add(self, matrix_a: matrix_4d_vector, matrix_b: matrix_4d_vector):
+        self.construct.add(matrix_a.matrix, matrix_b.matrix)
+
+    def get_values(self):
+        return np.asarray(self.construct.get_values())
+
+
+class tune_birkhoff_construct:
+    def __init__(self, n, n_weights):
+        assert gpu_available()
+        self.construct = tune_birkhoff(n, n_weights)
+        self.first_called = False
+
+    def reset(self):
+        self.construct.reset()
+
+    def add_first(self, particles: particles_4d):
+        self.construct.add(particles.particles)
+        self.first_called = True
+
+    def add(self, particles: particles_4d):
+        if not self.first_called:
+            raise ValueError("First call add_first")
+        self.construct.add(particles.particles)
+    
+    def get_tune1_x(self):
+        return self.construct.get_tune1_x()
+
+    def get_tune1_y(self):
+        return self.construct.get_tune1_y()
+    
+    def get_tune2_x(self):
+        return self.construct.get_tune2_x()
+
+    def get_tune2_y(self):
+        return self.construct.get_tune2_y()
+
+
 class henon_tracker:
     def __init__(
         self,
@@ -220,6 +290,31 @@ class henon_tracker:
         self.tracker.track(
             particles.particles, n_turns, mu, barrier, kick_module, inverse
         )
+
+    def megno(
+        self,
+        particles,
+        n_turns,
+        mu,
+        barrier=10.0,
+        kick_module=np.nan,
+        inverse=False,
+        turn_samples=np.array([]),
+        n_threads=-1,
+    ):
+        result = np.asarray(
+            self.tracker.megno(
+                particles.particles,
+                n_turns,
+                mu,
+                barrier,
+                kick_module,
+                inverse,
+                turn_samples,
+                n_threads,
+            )
+        )
+        return result
 
     def tune_birkhoff(
         self,
