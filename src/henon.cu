@@ -2015,6 +2015,10 @@ void megno_birkhoff_construct::add(const matrix_4d_vector_gpu &matrix_a, const m
     // add vectors to lyapunov
     kernel_megno_birkhoff<<<n_blocks, 512>>>(d_layer1, d_layer2, d_weights, d_turn_samples, matrix_a.d_matrix, matrix_b.d_matrix, N, idx, n_turn_samples);
     idx++;
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+    }
 }
 
 std::vector<std::vector<double>> megno_birkhoff_construct::get_values() const
@@ -2030,7 +2034,7 @@ std::vector<std::vector<double>> megno_birkhoff_construct::get_values() const
     return values;
 }
 
-tune_birkhoff_construct::tune_birkhoff_construct(size_t N, std::vector<size_t> _turn_samples)
+tune_birkhoff_construct::tune_birkhoff_construct(size_t _N, std::vector<size_t> _turn_samples): N(_N)
 {
     n_blocks = (N + 512 - 1) / 512;
     idx = 1;
@@ -2191,54 +2195,73 @@ __global__ void kernel_tune_birkhoff(double *d_x, double *d_px, double *d_y, dou
 void tune_birkhoff_construct::first_add(const particles_4d_gpu &particles)
 {
     kernel_tune_birkhoff_init<<<n_blocks, 512>>>(particles.d_x, particles.d_px, particles.d_y, particles.d_py, store_x, store_y, N);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+    }
 }
 
 void tune_birkhoff_construct::add(const particles_4d_gpu &particles)
 {
     kernel_tune_birkhoff<<<n_blocks, 512>>>(particles.d_x, particles.d_px, particles.d_y, particles.d_py, store_x, store_y, d_tune1_x, d_tune2_x, d_tune1_y, d_tune2_y, d_weights, d_turn_samples, N, idx, n_turn_samples);
     idx++;
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+    }
 }
 
 std::vector<std::vector<double>> tune_birkhoff_construct::get_tune1_x() const
 {
-    std::vector<std::vector<double>> tune1_x(n_turn_samples, std::vector<double>(N));
+    std::vector<std::vector<double>> out_vec(n_turn_samples);
     for (size_t i = 0; i < n_turn_samples; i++)
     {
-        cudaMemcpy(tune1_x[i].data(), d_tune1_x[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+        out_vec[i].resize(N);
+        double *d_tune_i;
+        cudaMemcpy(&d_tune_i, d_tune1_x + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(out_vec[i].data(), d_tune_i, N * sizeof(double), cudaMemcpyDeviceToHost);
     }
-    return tune1_x;
+    return out_vec;
 }
 
 std::vector<std::vector<double>> tune_birkhoff_construct::get_tune2_x() const
 {
-    std::vector<std::vector<double>> tune2_x(n_turn_samples, std::vector<double>(N));
+    std::vector<std::vector<double>> out_vec(n_turn_samples);
     for (size_t i = 0; i < n_turn_samples; i++)
     {
-        cudaMemcpy(tune2_x[i].data(), d_tune2_x[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+        out_vec[i].resize(N);
+        double *d_tune_i;
+        cudaMemcpy(&d_tune_i, d_tune2_x + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(out_vec[i].data(), d_tune_i, N * sizeof(double), cudaMemcpyDeviceToHost);
     }
-    return tune2_x;
+    return out_vec;
 }
 
 std::vector<std::vector<double>> tune_birkhoff_construct::get_tune1_y() const
 {
-    std::vector<std::vector<double>> tune1_y(n_turn_samples, std::vector<double>(N));
+    std::vector<std::vector<double>> out_vec(n_turn_samples);
     for (size_t i = 0; i < n_turn_samples; i++)
     {
-        cudaMemcpy(tune1_y[i].data(), d_tune1_y[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+        out_vec[i].resize(N);
+        double *d_tune_i;
+        cudaMemcpy(&d_tune_i, d_tune1_y + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(out_vec[i].data(), d_tune_i, N * sizeof(double), cudaMemcpyDeviceToHost);
     }
-    return tune1_y;
+    return out_vec;
 }
 
 std::vector<std::vector<double>> tune_birkhoff_construct::get_tune2_y() const
 {
-    std::vector<std::vector<double>> tune2_y(n_turn_samples, std::vector<double>(N));
+    std::vector<std::vector<double>> out_vec(n_turn_samples);
     for (size_t i = 0; i < n_turn_samples; i++)
     {
-        cudaMemcpy(tune2_y[i].data(), d_tune2_y[i], N * sizeof(double), cudaMemcpyDeviceToHost);
+        out_vec[i].resize(N);
+        double *d_tune_i;
+        cudaMemcpy(&d_tune_i, d_tune2_y + i, sizeof(double *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(out_vec[i].data(), d_tune_i, N * sizeof(double), cudaMemcpyDeviceToHost);
     }
-    return tune2_y;
+    return out_vec;
 }
-
 
 void henon_tracker::compute_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
 { 
