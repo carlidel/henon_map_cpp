@@ -1887,9 +1887,9 @@ __global__ void kernel_megno(double *d_layer1, double *d_layer2, double *d_layer
     }
     trace_b = sqrt(trace_b);
 
-    d_layer1[i] += log(trace_a / trace_b) * idx;
-    d_layer2[i] += (1 / idx) * d_layer1[i];
-    d_layer3[i] = (1 / idx) * d_layer2[i];
+    d_layer1[i] += log10(trace_a / trace_b) * idx;
+    d_layer2[i] += (1.0 / idx) * d_layer1[i];
+    d_layer3[i] = (1.0 / idx) * d_layer2[i];
 }
 
 void megno_construct::add(const matrix_4d_vector_gpu &matrix_a, const matrix_4d_vector_gpu &matrix_b)
@@ -2000,7 +2000,7 @@ __global__ void kernel_megno_birkhoff(double *d_layer1, double **d_layer2, doubl
     }
     trace_b = sqrt(trace_b);
 
-    d_layer1[i] += log(trace_a / trace_b) * idx;
+    d_layer1[i] += log10(trace_a / trace_b) * idx;
     for (size_t j = 0; j < n_turn_samples; j++)
     {
         if (idx <= d_turn_samples[j])
