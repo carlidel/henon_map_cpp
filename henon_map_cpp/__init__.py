@@ -224,8 +224,8 @@ class tune_birkhoff_construct:
     def reset(self):
         self.construct.reset()
 
-    def add_first(self, particles: particles_4d):
-        self.construct.add(particles.particles)
+    def first_add(self, particles: particles_4d):
+        self.construct.first_add(particles.particles)
         self.first_called = True
 
     def add(self, particles: particles_4d):
