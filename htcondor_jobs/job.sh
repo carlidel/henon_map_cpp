@@ -1,12 +1,8 @@
 #!/bin/bash
 
+source /cvmfs/sft.cern.ch/lcg/views/LCG_102cuda/x86_64-centos7-gcc8-opt/setup.sh
+source /afs/cern.ch/work/c/camontan/public/tangent_map/myenv/bin/activate
 export EOS_MGM_URL=root://eosuser.cern.ch
-export MYPYTHON=/afs/cern.ch/work/c/camontan/public/anaconda3
-
-unset PYTHONHOME
-unset PYTHONPATH
-source $MYPYTHON/bin/activate
-export PATH=$MYPYTHON/bin:$PATH
 
 which python
 
