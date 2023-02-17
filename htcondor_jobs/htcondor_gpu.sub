@@ -1,0 +1,23 @@
+universe   = vanilla
+
+executable = job.sh
+arguments  = $(Omegax) $(Omegay) $(Epsilon) $(Mu) $(Rmax)
+
+output     = out/exp.$(ClusterId).$(ProcId).out
+error      = err/exp.$(ClusterId).$(ProcId).err
+log        = log/exp.$(ClusterId).log
+
+transfer_input_files = ./run_stability.py
+transfer_output_files = ""
+
+#request_disk = 25000000
+
+requirements = regexp("(V100|A100)", Target.CUDADeviceName)
+
+request_GPUs = 1
+
++JobFlavour = "espresso"
+
++AccountingGroup = "group_u_BE.ABP.normal"
+
+queue Omegax,Omegay,Epsilon,Mu,Rmax from configs/all_jobs.txt
