@@ -7,7 +7,7 @@ output     = out/exp.$(ClusterId).$(ProcId).out
 error      = err/exp.$(ClusterId).$(ProcId).err
 log        = log/exp.$(ClusterId).log
 
-transfer_input_files = ./run_stability.py
+transfer_input_files = ./run_sim.py
 transfer_output_files = ""
 
 #request_disk = 25000000
