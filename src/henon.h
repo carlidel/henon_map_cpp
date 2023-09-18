@@ -86,6 +86,25 @@ struct particles_4d
     virtual const std::vector<double> get_py() const;
     virtual const std::vector<unsigned int> get_steps() const;
 
+    virtual std::vector<double> get_radius() const;
+    virtual double get_radius_mean() const;
+    virtual double get_radius_std() const;
+    virtual std::vector<double> get_action() const;
+    virtual double get_action_mean() const;
+    virtual double get_action_std() const;
+    virtual std::vector<double> get_action_x() const;
+    virtual double get_action_x_mean() const;
+    virtual double get_action_x_std() const;
+    virtual std::vector<double> get_action_y() const;
+    virtual double get_action_y_mean() const;
+    virtual double get_action_y_std() const;
+    virtual std::vector<double> get_angles_x() const;
+    virtual double get_angles_x_mean() const;
+    virtual double get_angles_x_std() const;
+    virtual std::vector<double> get_angles_y() const;
+    virtual double get_angles_y_mean() const;
+    virtual double get_angles_y_std() const;
+
     virtual const std::vector<uint8_t> get_valid() const;
     virtual const std::vector<uint8_t> get_ghost() const;
 
@@ -140,6 +159,25 @@ struct particles_4d_gpu : public particles_4d
     virtual const std::vector<double> get_y() const;
     virtual const std::vector<double> get_py() const;
     virtual const std::vector<unsigned int> get_steps() const;
+
+    virtual std::vector<double> get_radius() const;
+    virtual double get_radius_mean() const;
+    virtual double get_radius_std() const;
+    virtual std::vector<double> get_action() const;
+    virtual double get_action_mean() const;
+    virtual double get_action_std() const;
+    virtual std::vector<double> get_action_x() const;
+    virtual double get_action_x_mean() const;
+    virtual double get_action_x_std() const;
+    virtual std::vector<double> get_action_y() const;
+    virtual double get_action_y_mean() const;
+    virtual double get_action_y_std() const;
+    virtual std::vector<double> get_angles_x() const;
+    virtual double get_angles_x_mean() const;
+    virtual double get_angles_x_std() const;
+    virtual std::vector<double> get_angles_y() const;
+    virtual double get_angles_y_mean() const;
+    virtual double get_angles_y_std() const;
 
     virtual const std::vector<uint8_t> get_valid() const;
     virtual const std::vector<uint8_t> get_ghost() const;

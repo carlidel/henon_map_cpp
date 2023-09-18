@@ -9,11 +9,11 @@ from .henon_map_engine import lyapunov_birkhoff_construct as lbc
 from .henon_map_engine import lyapunov_birkhoff_construct_multi as lbcm
 from .henon_map_engine import matrix_4d_vector as cpp_matrix_4d_vector
 from .henon_map_engine import matrix_4d_vector_gpu as cpp_matrix_4d_vector_gpu
-from .henon_map_engine import megno_construct as megno
 from .henon_map_engine import megno_birkhoff_construct as megno_birkhoff
-from .henon_map_engine import tune_birkhoff_construct as tune_birkhoff
+from .henon_map_engine import megno_construct as megno
 from .henon_map_engine import particles_4d, particles_4d_gpu, storage_4d
 from .henon_map_engine import storage_4d_gpu as cpp_storage_4d_gpu
+from .henon_map_engine import tune_birkhoff_construct as tune_birkhoff
 from .henon_map_engine import vector_4d_gpu
 
 # from .henon_map_engine import cpu_henon, gpu_henon, is_cuda_device_available
@@ -78,6 +78,60 @@ class particles:
 
     def get_steps(self):
         return np.asarray(self.particles.get_steps())
+
+    def get_radius(self):
+        return np.asarray(self.particles.get_radius())
+
+    def get_radius_mean(self):
+        return np.asarray(self.particles.get_radius_mean())
+
+    def get_radius_std(self):
+        return np.asarray(self.particles.get_radius_std())
+
+    def get_action(self):
+        return np.asarray(self.particles.get_action())
+
+    def get_action_mean(self):
+        return np.asarray(self.particles.get_action_mean())
+
+    def get_action_std(self):
+        return np.asarray(self.particles.get_action_std())
+    
+    def get_action_x(self):
+        return np.asarray(self.particles.get_action_x())
+
+    def get_action_x_mean(self):
+        return np.asarray(self.particles.get_action_x_mean())
+
+    def get_action_x_std(self):
+        return np.asarray(self.particles.get_action_x_std())
+
+    def get_action_y(self):
+        return np.asarray(self.particles.get_action())
+
+    def get_action_y_mean(self):
+        return np.asarray(self.particles.get_action_mean())
+
+    def get_action_y_std(self):
+        return np.asarray(self.particles.get_action_std())
+
+    def get_angle_x(self):
+        return np.asarray(self.particles.get_angles_x())
+
+    def get_angle_x_mean(self):
+        return np.asarray(self.particles.get_angles_x_mean())
+
+    def get_angle_x_std(self):
+        return np.asarray(self.particles.get_angles_x_std())
+
+    def get_angle_y(self):
+        return np.asarray(self.particles.get_angles_y())
+
+    def get_angle_y_mean(self):
+        return np.asarray(self.particles.get_angles_y_mean())
+
+    def get_angle_y_std(self):
+        return np.asarray(self.particles.get_angles_y_std())
 
 
 class matrix_4d_vector:
@@ -232,13 +286,13 @@ class tune_birkhoff_construct:
         if not self.first_called:
             raise ValueError("First call add_first")
         self.construct.add(particles.particles)
-    
+
     def get_tune1_x(self):
         return self.construct.get_tune1_x()
 
     def get_tune1_y(self):
         return self.construct.get_tune1_y()
-    
+
     def get_tune2_x(self):
         return self.construct.get_tune2_x()
 

@@ -25,6 +25,91 @@ void check_cuda_errors() {
 }
 
 
+double nan_mean(const std::vector<double> &vec)
+{
+    double sum = 0.0;
+    int count = 0;
+    for (auto &v : vec)
+    {
+        if (!isnan(v))
+        {
+            sum += v;
+            count++;
+        }
+    }
+    if (count == 0)
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return sum / count;
+}
+
+double nan_std(const std::vector<double> &vec)
+{
+    double mean = nan_mean(vec);
+    double sum = 0.0;
+    int count = 0;
+    for (auto &v : vec)
+    {
+        if (!isnan(v))
+        {
+            sum += (v - mean) * (v - mean);
+            count++;
+        }
+    }
+    if (count == 0)
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return sqrt(sum / count);
+}
+
+__global__ void gpu_evaluate_radius(const double *x, const double *px, const double *y, const double *py, double *r, int size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        r[idx] = sqrt(x[idx] * x[idx] + px[idx] * px[idx] + y[idx] * y[idx] + py[idx] * py[idx]);
+    }
+}
+
+__global__ void gpu_evaluate_action(const double *x, const double *px, const double *y, const double *py, double *r, int size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        r[idx] = (x[idx] * x[idx] + px[idx] * px[idx] + y[idx] * y[idx] + py[idx] * py[idx]);
+    }
+}
+
+
+__global__ void gpu_evaluate_action_x(const double *x, const double *px, const double *y, const double *py, double *r, int size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        r[idx] = (x[idx] * x[idx] + px[idx] * px[idx]);
+    }
+}
+
+__global__ void gpu_evaluate_action_y(const double *x, const double *px, const double *y, const double *py, double *r, int size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        r[idx] = (y[idx] * y[idx] + py[idx] * py[idx]);
+    }
+}
+
+__global__ void gpu_evaluate_angle(const double *x, const double *px, double *angle, int size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        angle[idx] = atan2(px[idx], x[idx]);
+    }
+}
+
 __host__ __device__ bool check_barrier(const double &x, const double &px, const double &y, const double &py, const double &barrier_pow_2)
 {
     return (x*x + px*px) + (y*y + py*py) < barrier_pow_2;
@@ -891,6 +976,150 @@ const std::vector<unsigned int> particles_4d::get_steps() const
     return steps;
 }
 
+std::vector<double> particles_4d::get_radius() const
+{
+    std::vector<double> radius(n_particles, std::numeric_limits<double>::quiet_NaN());
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        if (isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+            continue;
+        radius[i] = std::sqrt(x[i] * x[i] + px[i] * px[i] + y[i] * y[i] + py[i] * py[i]);
+    }
+    return radius;
+}
+
+double particles_4d::get_radius_mean() const
+{
+    auto radius = get_radius();
+    return nan_mean(radius);
+}
+
+double particles_4d::get_radius_std() const
+{
+    auto radius = get_radius();
+    return nan_std(radius);
+}
+
+std::vector<double> particles_4d::get_action() const
+{
+    std::vector<double> action(n_particles, std::numeric_limits<double>::quiet_NaN());
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        if (isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+            continue;
+        action[i] = (x[i] * x[i] + px[i] * px[i] + y[i] * y[i] + py[i] * py[i]);
+    }
+    return action;
+}
+
+double particles_4d::get_action_mean() const
+{
+    auto action = get_action();
+    return nan_mean(action);
+}
+
+double particles_4d::get_action_std() const
+{
+    auto action = get_action();
+    return nan_std(action);
+}
+
+std::vector<double> particles_4d::get_action_x() const
+{
+    std::vector<double> action(n_particles, std::numeric_limits<double>::quiet_NaN());
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        if (isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+            continue;
+        action[i] = (x[i] * x[i] + px[i] * px[i]);
+    }
+    return action;
+}
+
+double particles_4d::get_action_x_mean() const
+{
+    auto action = get_action_x();
+    return nan_mean(action);
+}
+
+double particles_4d::get_action_x_std() const
+{
+    auto action = get_action_x();
+    return nan_std(action);
+}
+
+std::vector<double> particles_4d::get_action_y() const
+{
+    std::vector<double> action(n_particles, std::numeric_limits<double>::quiet_NaN());
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        if (isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+            continue;
+        action[i] = (y[i] * y[i] + py[i] * py[i]);
+    }
+    return action;
+}
+
+double particles_4d::get_action_y_mean() const
+{
+    auto action = get_action_y();
+    return nan_mean(action);
+}
+
+double particles_4d::get_action_y_std() const
+{
+    auto action = get_action_y();
+    return nan_std(action);
+}
+
+std::vector<double> particles_4d::get_angles_x() const
+{
+    std::vector<double> angles_x(n_particles, std::numeric_limits<double>::quiet_NaN());
+    for(size_t i = 0; i < n_particles; i++)
+    {
+        if (isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+            continue;
+        angles_x[i] = std::atan2(px[i], x[i]);
+    }
+    return angles_x;
+}
+
+double particles_4d::get_angles_x_mean() const
+{
+    auto angles_x = get_angles_x();
+    return nan_mean(angles_x);
+}
+
+double particles_4d::get_angles_x_std() const
+{
+    auto angles_x = get_angles_x();
+    return nan_std(angles_x);
+}
+
+std::vector<double> particles_4d::get_angles_y() const
+{
+    std::vector<double> angles_y(n_particles, std::numeric_limits<double>::quiet_NaN());
+    for(size_t i = 0; i < n_particles; i++)
+    {
+        if (isnan(x[i]) || isnan(px[i]) || isnan(y[i]) || isnan(py[i]))
+            continue;
+        angles_y[i] = std::atan2(py[i], y[i]);
+    }
+    return angles_y;
+}
+
+double particles_4d::get_angles_y_mean() const
+{
+    auto angles_y = get_angles_y();
+    return nan_mean(angles_y);
+}
+
+double particles_4d::get_angles_y_std() const
+{
+    auto angles_y = get_angles_y();
+    return nan_std(angles_y);
+}
+
 const std::vector<uint8_t> particles_4d::get_valid() const
 {
     return valid;
@@ -1250,6 +1479,168 @@ const std::vector<unsigned int> particles_4d_gpu::get_steps() const
     // copy data to host
     cudaMemcpy(steps_copy.data(), d_steps, steps.size() * sizeof(unsigned int), cudaMemcpyDeviceToHost);
     return steps_copy;
+}
+
+std::vector<double> particles_4d_gpu::get_radius() const
+{
+    std::vector<double> radius_data(steps.size());
+    // create radius data vector on gpu
+    double *d_radius;
+    cudaMalloc(&d_radius, steps.size() * sizeof(double));
+    // calculate radius data
+    gpu_evaluate_radius<<<_optimal_nblocks(), 512>>>(d_x, d_px, d_y, d_py, d_radius, steps.size());
+    // copy data to host
+    cudaMemcpy(radius_data.data(), d_radius, steps.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    // free memory
+    cudaFree(d_radius);
+    return radius_data;
+}
+
+std::vector<double> particles_4d_gpu::get_action() const
+{
+    std::vector<double> action_data(steps.size());
+    // create action data vector on gpu
+    double *d_action;
+    cudaMalloc(&d_action, steps.size() * sizeof(double));
+    // calculate action data
+    gpu_evaluate_action<<<_optimal_nblocks(), 512>>>(d_x, d_px, d_y, d_py, d_action, steps.size());
+    // copy data to host
+    cudaMemcpy(action_data.data(), d_action, steps.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    // free memory
+    cudaFree(d_action);
+    return action_data;
+}
+
+std::vector<double> particles_4d_gpu::get_action_x() const
+{
+    std::vector<double> action_data(steps.size());
+    // create action data vector on gpu
+    double *d_action;
+    cudaMalloc(&d_action, steps.size() * sizeof(double));
+    // calculate action data
+    gpu_evaluate_action_x<<<_optimal_nblocks(), 512>>>(d_x, d_px, d_y, d_py, d_action, steps.size());
+    // copy data to host
+    cudaMemcpy(action_data.data(), d_action, steps.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    // free memory
+    cudaFree(d_action);
+    return action_data;
+}
+
+std::vector<double> particles_4d_gpu::get_action_y() const
+{
+    std::vector<double> action_data(steps.size());
+    // create action data vector on gpu
+    double *d_action;
+    cudaMalloc(&d_action, steps.size() * sizeof(double));
+    // calculate action data
+    gpu_evaluate_action_y<<<_optimal_nblocks(), 512>>>(d_x, d_px, d_y, d_py, d_action, steps.size());
+    // copy data to host
+    cudaMemcpy(action_data.data(), d_action, steps.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    // free memory
+    cudaFree(d_action);
+    return action_data;
+}
+
+double particles_4d_gpu::get_radius_mean() const
+{
+    auto radius_data = get_radius();
+    return nan_mean(radius_data);
+}
+
+double particles_4d_gpu::get_radius_std() const
+{
+    auto radius_data = get_radius();
+    return nan_std(radius_data);
+}
+
+double particles_4d_gpu::get_action_x_mean() const
+{
+    auto action_data = get_action_x();
+    return nan_mean(action_data);
+}
+
+double particles_4d_gpu::get_action_x_std() const
+{
+    auto action_data = get_action_x();
+    return nan_std(action_data);
+}
+
+double particles_4d_gpu::get_action_y_mean() const
+{
+    auto action_data = get_action_y();
+    return nan_mean(action_data);
+}
+
+double particles_4d_gpu::get_action_y_std() const
+{
+    auto action_data = get_action_y();
+    return nan_std(action_data);
+}
+
+double particles_4d_gpu::get_action_mean() const
+{
+    auto action_data = get_action();
+    return nan_mean(action_data);
+}
+
+double particles_4d_gpu::get_action_std() const
+{
+    auto action_data = get_action();
+    return nan_std(action_data);
+}
+
+std::vector<double> particles_4d_gpu::get_angles_x() const
+{
+    // create angles data vector on gpu
+    double *d_angles;
+    cudaMalloc(&d_angles, steps.size() * sizeof(double));
+    // calculate angles data
+    gpu_evaluate_angle<<<_optimal_nblocks(), 512>>>(d_x, d_px, d_angles, steps.size());
+    // copy data to host
+    std::vector<double> angles(steps.size());
+    cudaMemcpy(angles.data(), d_angles, steps.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    // free memory
+    cudaFree(d_angles);
+    return angles; 
+}
+
+double particles_4d_gpu::get_angles_x_mean() const
+{
+    auto angles_data = get_angles_x();
+    return nan_mean(angles_data);
+}
+
+double particles_4d_gpu::get_angles_x_std() const
+{
+    auto angles_data = get_angles_x();
+    return nan_std(angles_data);
+}
+
+std::vector<double> particles_4d_gpu::get_angles_y() const
+{
+    // create angles data vector on gpu
+    double *d_angles;
+    cudaMalloc(&d_angles, steps.size() * sizeof(double));
+    // calculate angles data
+    gpu_evaluate_angle<<<_optimal_nblocks(), 512>>>(d_y, d_py, d_angles, steps.size());
+    // copy data to host
+    std::vector<double> angles(steps.size());
+    cudaMemcpy(angles.data(), d_angles, steps.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    // free memory
+    cudaFree(d_angles);
+    return angles;
+}
+
+double particles_4d_gpu::get_angles_y_mean() const
+{
+    auto angles_data = get_angles_y();
+    return nan_mean(angles_data);
+}
+
+double particles_4d_gpu::get_angles_y_std() const
+{
+    auto angles_data = get_angles_y();
+    return nan_std(angles_data);
 }
 
 const std::vector<uint8_t> particles_4d_gpu::get_valid() const

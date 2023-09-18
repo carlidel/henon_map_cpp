@@ -87,6 +87,84 @@ public:
         PYBIND11_OVERRIDE(const std::vector<unsigned int>, particles_4d, get_steps);
     }
 
+    std::vector<double> get_radius() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d, get_radius);
+    }
+    double get_radius_mean() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_radius_mean);
+    }
+    double get_radius_std() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_radius_std);
+    }
+
+    std::vector<double> get_action() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d, get_action);
+    }
+    double get_action_mean() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_action_mean);
+    }
+    double get_action_std() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_action_std);
+    }
+
+    std::vector<double> get_action_x() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d, get_action_x);
+    }
+    double get_action_x_mean() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_action_x_mean);
+    }
+    double get_action_x_std() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_action_x_std);
+    }
+
+    std::vector<double> get_action_y() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d, get_action_y);
+    }
+    double get_action_y_mean() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_action_y_mean);
+    }
+    double get_action_y_std() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_action_y_std);
+    }
+
+    std::vector<double> get_angles_x() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d, get_angles_x);
+    }
+    double get_angles_x_mean() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_angles_x_mean);
+    }
+    double get_angles_x_std() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_angles_x_std);
+    }
+
+    std::vector<double> get_angles_y() const override
+    {
+        PYBIND11_OVERRIDE(const std::vector<double>, particles_4d, get_angles_y);
+    }
+    double get_angles_y_mean() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_angles_y_mean);
+    }
+    double get_angles_y_std() const override
+    {
+        PYBIND11_OVERRIDE(const double, particles_4d, get_angles_y_std);
+    }
+
     const std::vector<uint8_t> get_valid() const override
     {
         PYBIND11_OVERRIDE(const std::vector<uint8_t>, particles_4d, get_valid);
@@ -175,50 +253,122 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("renormalize", &particles_4d::renormalize, py::arg("module_target"))
         .def("get_displacement_module", &particles_4d::get_displacement_module)
         .def("get_displacement_direction", &particles_4d::get_displacement_direction)
-        .def("get_x", [](particles_4d &self){
+        .def("get_x", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_x());
-            return out;
-            })
-        .def("get_px",  [](particles_4d &self){
+            return out; })
+        .def("get_px", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_px());
-            return out;
-            })
-        .def("get_y",  [](particles_4d &self){
+            return out; })
+        .def("get_y", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_y());
-            return out;
-            })
-        .def("get_py",  [](particles_4d &self){
+            return out; })
+        .def("get_py", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_py());
-            return out;
-            })
-        .def("get_steps",  [](particles_4d &self){
+            return out; })
+        .def("get_steps", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_steps());
-            return out;
-            })
-        .def("get_valid",  [](particles_4d &self){
+            return out; })
+        .def("get_radius", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_radius());
+            return out; })
+        .def("get_radius_mean", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_radius_mean());
+            return out; })
+        .def("get_radius_std", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_radius_std());
+            return out; })
+        .def("get_action", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action());
+            return out; })
+        .def("get_action_mean", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_mean());
+            return out; })
+        .def("get_action_std", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_std());
+            return out; })
+        .def("get_action_x", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_x());
+            return out; })
+        .def("get_action_x_mean", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_x_mean());
+            return out; })
+        .def("get_action_x_std", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_x_std());
+            return out; })
+        .def("get_action_y", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_y());
+            return out; })
+        .def("get_action_y_mean", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_y_mean());
+            return out; })
+        .def("get_action_y_std", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_action_y_std());
+            return out; })
+        .def("get_angles_x", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_angles_x());
+            return out; })
+        .def("get_angles_x_mean", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_angles_x_mean());
+            return out; })
+        .def("get_angles_x_std", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_angles_x_std());
+            return out; })
+        .def("get_angles_y", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_angles_y());
+            return out; })
+        .def("get_angles_y_mean", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_angles_y_mean());
+            return out; })
+        .def("get_angles_y_std", [](particles_4d &self)
+             {
+            py::array out = py::cast(self.get_angles_y_std());
+            return out; })
+        .def("get_valid", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_valid());
-            return out;
-            })
-        .def("get_ghost",  [](particles_4d &self){
+            return out; })
+        .def("get_ghost", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_ghost());
-            return out;
-            })
-        .def("get_idx",  [](particles_4d &self){
+            return out; })
+        .def("get_idx", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_idx());
-            return out;
-            })
-        .def("get_idx_base",  [](particles_4d &self){
+            return out; })
+        .def("get_idx_base", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_idx_base());
-            return out;
-            })
-        .def("get_n_particles",  [](particles_4d &self){
+            return out; })
+        .def("get_n_particles", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_n_particles());
-            return out;
-            })
-        .def("get_n_ghosts_per_particle",  [](particles_4d &self){
+            return out; })
+        .def("get_n_ghosts_per_particle", [](particles_4d &self)
+             {
             py::array out = py::cast(self.get_n_ghosts_per_particle());
-            return out;
-            });
+            return out; });
 
     py::class_<matrix_4d_vector>(m, "matrix_4d_vector")
         .def(py::init<size_t>())
@@ -308,7 +458,7 @@ PYBIND11_MODULE(henon_map_engine, m)
              {
             py::array out = py::cast(self.get_values());
             return out; });
-    
+
     py::class_<megno_birkhoff_construct>(m, "megno_birkhoff_construct")
         .def(py::init<size_t, std::vector<size_t>>())
         .def("reset", &megno_birkhoff_construct::reset)
@@ -363,11 +513,12 @@ PYBIND11_MODULE(henon_map_engine, m)
         .def("megno", &henon_tracker::megno, "Compute megno", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("turn_samples") = std::vector<unsigned int>(), py::arg("n_threads") = -1)
         .def("birkhoff_tunes", &henon_tracker::birkhoff_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
         .def("all_tunes", &henon_tracker::all_tunes, "Compute birkhoff tunes", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false, py::arg("from_idx") = std::vector<unsigned int>(), py::arg("to_idx") = std::vector<unsigned int>())
-        .def("get_tangent_matrix", [](henon_tracker &self, const particles_4d &particles, const double &mu, const bool &reverse){
+        .def(
+            "get_tangent_matrix", [](henon_tracker &self, const particles_4d &particles, const double &mu, const bool &reverse)
+            {
             py::array out = py::cast(self.get_tangent_matrix(particles, mu, reverse));
-            return out;
-            }
-            , "Get tangent matrix", py::arg("particles"), py::arg("mu"), py::arg("reverse"));
+            return out; },
+            "Get tangent matrix", py::arg("particles"), py::arg("mu"), py::arg("reverse"));
 
     py::class_<henon_tracker_gpu, py_henon_tracker_gpu>(m, "henon_tracker_gpu")
         .def(py::init<
@@ -382,11 +533,12 @@ PYBIND11_MODULE(henon_map_engine, m)
              "Compute a modulation",
              py::arg("N"), py::arg("omega_x"), py::arg("omega_y"), py::arg("modulation_kind"), py::arg("omega_0"), py::arg("epsilon"), py::arg("offset"))
         .def("track", &henon_tracker_gpu::track, "Track particles", py::arg("particles"), py::arg("n_turns"), py::arg("mu"), py::arg("barrier") = 100.0, py::arg("kick_module") = NAN, py::arg("inverse") = false)
-        .def("get_tangent_matrix", [](henon_tracker_gpu &self, const particles_4d_gpu &particles, const double &mu, const bool &reverse){
+        .def(
+            "get_tangent_matrix", [](henon_tracker_gpu &self, const particles_4d_gpu &particles, const double &mu, const bool &reverse)
+            {
             py::array out = py::cast(self.get_tangent_matrix(particles, mu, reverse));
-            return out;
-            }
-            , "Get tangent matrix", py::arg("particles"), py::arg("mu"), py::arg("reverse"));
+            return out; },
+            "Get tangent matrix", py::arg("particles"), py::arg("mu"), py::arg("reverse"));
 
     py::class_<storage_4d>(m, "storage_4d")
         .def(py::init<size_t>())
