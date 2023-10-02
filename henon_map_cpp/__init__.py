@@ -96,7 +96,7 @@ class particles:
 
     def get_action_std(self):
         return np.asarray(self.particles.get_action_std())
-    
+
     def get_action_x(self):
         return np.asarray(self.particles.get_action_x())
 
@@ -107,13 +107,13 @@ class particles:
         return np.asarray(self.particles.get_action_x_std())
 
     def get_action_y(self):
-        return np.asarray(self.particles.get_action())
+        return np.asarray(self.particles.get_action_y())
 
     def get_action_y_mean(self):
-        return np.asarray(self.particles.get_action_mean())
+        return np.asarray(self.particles.get_action_y_mean())
 
     def get_action_y_std(self):
-        return np.asarray(self.particles.get_action_std())
+        return np.asarray(self.particles.get_action_y_std())
 
     def get_angle_x(self):
         return np.asarray(self.particles.get_angles_x())
