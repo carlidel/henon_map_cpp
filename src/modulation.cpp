@@ -39,7 +39,7 @@ std::vector<double> sps_modulation(const double &tune, const double &epsilon, co
         threads.push_back(std::thread(
             [&](const unsigned int n_th)
             {
-                for (unsigned int i = n_th; i < end - start; i+=n_threads_cpu)
+                for (unsigned int i = n_th; i < end - start; i += n_threads_cpu)
                 {
                     auto sum = 0.0;
                     for (unsigned int j = 0; j < sps_modulations.size(); j++)
@@ -95,7 +95,7 @@ std::vector<double> uniform_modulation(const double &from, const double &to, con
     return modulation;
 }
 
-std::tuple<std::vector<double>, std::vector<double>> pick_a_modulation(unsigned int n_turns, double omega_x, double omega_y, std::string modulation_kind, double omega_0, double epsilon, unsigned int offset)
+std::tuple<std::vector<double>, std::vector<double>> pick_a_modulation(unsigned int n_turns, double omega_x, double omega_y, const std::string &modulation_kind, double omega_0, double epsilon, unsigned int offset)
 {
     std::vector<double> omega_x_vec;
     std::vector<double> omega_y_vec;
@@ -105,6 +105,15 @@ std::tuple<std::vector<double>, std::vector<double>> pick_a_modulation(unsigned 
         omega_x_vec = sps_modulation(omega_x, epsilon, offset, offset + n_turns);
         omega_y_vec = sps_modulation(omega_y, epsilon, offset, offset + n_turns);
     }
+    else if (modulation_kind == "sps_rollover")
+    {
+        // 86812 on paper is the period of this specific modulation.
+        // However, it differs from the full double evaluation done in the
+        // "sps" case. This is because of numerical precision shenanigans.
+        // The difference is "negligible", but it is there.
+        omega_x_vec = sps_modulation(omega_x, epsilon, offset, offset + 86812);
+        omega_y_vec = sps_modulation(omega_y, epsilon, offset, offset + 86812);
+    }
     else if (modulation_kind == "basic")
     {
         assert(!std::isnan(omega_0));
@@ -113,6 +122,9 @@ std::tuple<std::vector<double>, std::vector<double>> pick_a_modulation(unsigned 
     }
     else if (modulation_kind == "none")
     {
+        omega_x_vec.resize(1);
+        omega_y_vec.resize(1);
+
         std::fill(omega_x_vec.begin(), omega_x_vec.end(), omega_x);
         std::fill(omega_y_vec.begin(), omega_y_vec.end(), omega_y);
     }
