@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.4...3.18)
 # Set the path to the desired g++ version
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-9")
+# set(CMAKE_CXX_COMPILER "/usr/bin/g++-9")
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -std=c++14")
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
 # set(CMAKE_CXX_STANDARD 14 CACHE STRING "C++ version selection")
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 # specify path of cuda compiler
 # N.B. REMEMBER TO USE devtoolset-7!!!
